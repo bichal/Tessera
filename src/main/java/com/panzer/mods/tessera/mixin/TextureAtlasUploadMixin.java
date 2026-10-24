@@ -2,6 +2,7 @@ package com.panzer.mods.tessera.mixin;
 
 import com.panzer.mods.tessera.api.AtlasCompressEvent;
 import com.panzer.mods.tessera.atlas.AtlasCompressionDriver;
+import com.panzer.mods.tessera.atlas.AtlasPolicy;
 import com.panzer.mods.tessera.cache.AtlasCache;
 import com.panzer.mods.tessera.compat.TesseraCompat;
 import com.panzer.mods.tessera.compress.Bc1TextureFormatSupport;
@@ -112,6 +113,9 @@ public abstract class TextureAtlasUploadMixin {
         TextureAtlas self = (TextureAtlas) (Object) this;
         var atlasLocation = self.location();
         String atlasName = atlasLocation.toString();
+        if (!AtlasPolicy.isCompressible(atlasName)) {
+            return;
+        }
 
         Collection<TextureAtlasSprite> sprites = preparations.regions().values();
         if (sprites.isEmpty()) {
