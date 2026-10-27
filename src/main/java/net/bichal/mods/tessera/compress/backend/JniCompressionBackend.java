@@ -26,7 +26,7 @@ import java.util.Locale;
 final class JniCompressionBackend implements CompressionBackend {
 
     /** Must match kTesseraJniAbiVersion in tessera_bridge.cpp. */
-    private static final int EXPECTED_ABI_VERSION = 1;
+    static final int EXPECTED_ABI_VERSION = 2;
     private static final int BC7_BYTES_PER_BLOCK = 16;
     private static final int BC1_BYTES_PER_BLOCK = 8;
 
@@ -42,6 +42,27 @@ final class JniCompressionBackend implements CompressionBackend {
 
     private static native long nativeCompress(ByteBuffer src, int width, int height, int quality,
                                               boolean bc7, ByteBuffer dst);
+
+    private static native int nativeDecompressBc7(ByteBuffer src, int width, int height, ByteBuffer dst);
+
+    /** The ABI version the loaded library reports; the static initializer already checks it. */
+    static int abiVersion() {
+        return nativeAbiVersion();
+    }
+
+    /**
+     * Decodes BC7 blocks to RGBA8 with the bundled decoder. Used by the round-trip
+     * check ({@code NativeBridgeSelfTest}), not by the game.
+     *
+     * @return width * height RGBA8 texels, or {@code null} if the decoder rejects the input
+     */
+    static ByteBuffer decompressBc7(ByteBuffer bc7, int width, int height) {
+        if (!bc7.isDirect()) {
+            throw new IllegalArgumentException("decompressBc7 requires a direct source buffer");
+        }
+        ByteBuffer dst = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.LITTLE_ENDIAN);
+        return nativeDecompressBc7(bc7.slice(), width, height, dst) == 0 ? dst : null;
+    }
 
     @Override
     public ByteBuffer compressBc7(ByteBuffer rgba8Direct, int width, int height, int qualityPreset) {

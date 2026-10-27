@@ -104,3 +104,41 @@ tasks.register("selftest") {
         }
     }
 }
+
+// The native bridge the JNI test loads: staged by collectNatives from natives/
+// into the build directory, then put on the test classpath.
+sourceSets {
+    test {
+        resources.srcDir(layout.buildDirectory.dir("generated/natives"))
+    }
+}
+
+tasks.named("processTestResources") {
+    dependsOn("collectNatives")
+}
+
+// -PrequireNative=true makes a missing library a failure instead of a skip
+// (NativeBridgeSelfTest and verifyJniSymbols). The release gate sets it.
+val requireNative = (findProperty("requireNative") as String?) == "true"
+
+tasks.named<Test>("test") {
+    systemProperty("tessera.requireNative", requireNative.toString())
+}
+
+// JNI symbols of the staged libraries against the native methods declared in the
+// Java sources (scripts/verify-jni-symbols.sh). Part of `check`.
+val verifyJniSymbols = tasks.register<Exec>("verifyJniSymbols") {
+    group = "verification"
+    description = "Checks the exported Java_* symbols of natives/ against the Java native methods."
+    workingDir = rootProject.projectDir
+    commandLine(
+        "sh", rootProject.file("scripts/verify-jni-symbols.sh").path,
+        rootProject.file("natives").path,
+        rootProject.file("src/main/java").path
+    )
+    environment("REQUIRE_LIBRARIES", if (requireNative) "1" else "0")
+}
+
+tasks.named("check") {
+    dependsOn(verifyJniSymbols)
+}
