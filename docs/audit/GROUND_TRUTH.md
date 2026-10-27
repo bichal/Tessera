@@ -138,13 +138,15 @@ backend.
 
 Native bridge, checked separately:
 
-| Library | Exports | Loads through `JniCompressionBackend` |
-|---|---|---|
-| committed `natives/linux/x86_64/libtessera_bridge.so` | `Java_com_panzer_mods_tessera_...` | **No**: `UnsatisfiedLinkError` for `nativeAbiVersion()`. The shipped jar uses the Java encoder |
-| `native/` built from this commit (scratch copy, `fetch.sh` run there, `bc7enc_rdo@b9438627`) | `Java_net_bichal_mods_tessera_...` | **Yes**: `abi=1`, matching `EXPECTED_ABI_VERSION = 1` |
+| Library | Exports | Loads through `JniCompressionBackend` | glibc floor |
+|---|---|---|---|
+| committed `natives/linux/x86_64/libtessera_bridge.so` (before this change) | `Java_com_panzer_mods_tessera_...` | **No**: `UnsatisfiedLinkError` for `nativeAbiVersion()` | 2.14 |
+| rebuilt from this source in an Ubuntu 20.04 (focal) chroot, `bc7enc_rdo@b9438627` | `Java_net_bichal_mods_tessera_...` | **Yes**: `abi=1`, matching `EXPECTED_ABI_VERSION = 1` | 2.14 |
 
-The committed binaries are **not** replaced in this commit: they are release artifacts, and replacing them is a
-decision for the maintainer. Until they are rebuilt, the released jars keep the Java encoder.
+`natives/linux/x86_64/libtessera_bridge.so` is the focal-built one. `aarch64` (Linux) and `windows/x86_64` are **not**
+rebuilt: no cross toolchains here, and the Windows build needs MSVC. They still export `com_panzer` names and fail to
+load. Rebuild them through `native/build-linux.sh` (Docker) and the Windows CMake steps in the README.
 
 Not run here: `selftest` (headless client), `buildAndCollect`, the other Minecraft nodes, and a comparison of the
-native and Java encoders on the same atlases.
+native and Java encoders on the same atlases. The probe checks the library loads and reports the expected ABI; it does
+not call `nativeCompress`.
