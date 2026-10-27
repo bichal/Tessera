@@ -18,7 +18,7 @@
 - 🎨 **Shaders welcome:** it doesn't change how the game draws, so shaders and other visual mods keep working.
 - 📊 **See the savings:** press F3 to see how much video memory it saves (on every version except 1.21.5 – 1.21.9).
 
-> **You also need [Celeris](https://github.com/PanzerDevOrg/Celeris).** Put both in your `mods` folder.
+> **You also need [Celeris](https://github.com/bichal/Celeris).** Put both in your `mods` folder.
 
 ## 📉 What it saves
 
@@ -47,10 +47,10 @@ The more textures your packs and mods add, the more it saves. An earlier version
 Settings, extra speed tips, how it works and the full version list are on GitHub.
 
 <p align="center">
-<a href="https://github.com/PanzerDevOrg/Tessera"><img src="https://img.shields.io/badge/GitHub-Guide%20%26%20source-24292f?style=for-the-badge&logo=github&logoColor=white" alt="Guide and source on GitHub"></a>
-<a href="https://github.com/PanzerDevOrg/Celeris"><img src="https://img.shields.io/badge/Needs-Celeris-7c3aed?style=for-the-badge" alt="Requires Celeris"></a>
-<a href="https://github.com/PanzerDevOrg/Tessera/issues"><img src="https://img.shields.io/badge/Found%20a%20bug%3F-Tell%20us-d73a4a?style=for-the-badge&logo=github&logoColor=white" alt="Report a bug"></a>
-<a href="https://github.com/PanzerDevOrg/Tessera/tree/master/docs/changelogs"><img src="https://img.shields.io/badge/What's%20new-Changelog-2f81f7?style=for-the-badge&logo=github&logoColor=white" alt="Changelog"></a>
+<a href="https://github.com/bichal/Tessera"><img src="https://img.shields.io/badge/GitHub-Guide%20%26%20source-24292f?style=for-the-badge&logo=github&logoColor=white" alt="Guide and source on GitHub"></a>
+<a href="https://github.com/bichal/Celeris"><img src="https://img.shields.io/badge/Needs-Celeris-7c3aed?style=for-the-badge" alt="Requires Celeris"></a>
+<a href="https://github.com/bichal/Tessera/issues"><img src="https://img.shields.io/badge/Found%20a%20bug%3F-Tell%20us-d73a4a?style=for-the-badge&logo=github&logoColor=white" alt="Report a bug"></a>
+<a href="https://github.com/bichal/Tessera/tree/master/docs/changelogs"><img src="https://img.shields.io/badge/What's%20new-Changelog-2f81f7?style=for-the-badge&logo=github&logoColor=white" alt="Changelog"></a>
 </p>
 
 <!-- publish:off -->
@@ -102,7 +102,7 @@ The disk cache is capped at 512 MB; change it with `-Dtessera.cache.maxMB=<MB>`.
 `AtlasCompressEvent.Pre` (cancellable; choose BC7 or BC1 per atlas) and `AtlasCompressEvent.Post` (bytes saved and
 resident) are fired on `NeoForge.EVENT_BUS`.
 
-Source code, issues and docs: **[github.com/PanzerDevOrg/Tessera](https://github.com/PanzerDevOrg/Tessera)**
+Source code, issues and docs: **[github.com/bichal/Tessera](https://github.com/bichal/Tessera)**
 
 ## How it works
 
@@ -120,20 +120,20 @@ Source code, issues and docs: **[github.com/PanzerDevOrg/Tessera](https://github
 ## Developer guide
 
 Bug reports and PRs are welcome; please open an issue first for larger changes.
-[GitHub Issues](https://github.com/PanzerDevOrg/Tessera/issues): include Minecraft/NeoForge/Tessera versions, GPU, OS
+[GitHub Issues](https://github.com/bichal/Tessera/issues): include Minecraft/NeoForge/Tessera versions, GPU, OS
 and your log.
 
 ### Setup
 
-Clone the shared build logic next to Tessera; the build reads it from `../panzer-build-logic`:
+Clone the shared build logic next to Tessera; the build reads it from `../bichal-build-logic`:
 
 ```bash
-git clone https://github.com/PanzerDevOrg/PanzerBuildLogic.git panzer-build-logic
-git clone https://github.com/PanzerDevOrg/Tessera.git
+git clone https://github.com/bichal/BichalBuildLogic.git bichal-build-logic
+git clone https://github.com/bichal/Tessera.git
 ```
 
 Celeris is resolved from your local Maven repository (if you `publishToMavenLocal` it yourself) or from
-`https://panzerdevorg.github.io/Celeris/maven`. Requirements: **JDK 21**.
+`https://bichal.github.io/Celeris/maven`. Requirements: **JDK 21**.
 
 ### Build and run
 
@@ -176,7 +176,7 @@ native/
   CMakeLists.txt        # JNI library build
   build-linux.sh        # Linux x86_64 + aarch64 build in Docker
   vendor/bc7enc_rdo/    # tessera_bridge.cpp + fetch.sh (upstream sources are fetched, not committed)
-src/main/java/com/panzer/mods/tessera/
+src/main/java/net/bichal/mods/tessera/
   api/                  # AtlasCompressEvent
   atlas/                # Atlas assembly, mip chains, compression/upload driver
   cache/                # Disk cache
@@ -187,7 +187,7 @@ src/main/java/com/panzer/mods/tessera/
   vram/                 # VRAM budget
 ```
 
-<!-- panzer:license -->
+<!-- bichal:license -->
 ## License
 
 | Content | License |
@@ -198,15 +198,15 @@ src/main/java/com/panzer/mods/tessera/
 
 **Source code:** you may study, modify and redistribute it under the AGPL; if you run a modified version as a network service, its source must be available to that service's users.
 
-**Artwork:** credit Panzer, no commercial use without permission, and share derivatives under the same license.
+**Artwork:** credit Bichal, no commercial use without permission, and share derivatives under the same license.
 
 See [`LICENSE`](./LICENSE) for the full summary.
-<!-- /panzer:license -->
+<!-- /bichal:license -->
 
 <!-- publish:on -->
 
 ---
 
-<!-- panzer:footer -->
-Code: **AGPL-3.0** · Art: **CC BY-NC-SA 4.0** · Made by **Panzer**
-<!-- /panzer:footer -->
+<!-- bichal:footer -->
+Code: **AGPL-3.0** · Art: **CC BY-NC-SA 4.0** · Made by **Bichal**
+<!-- /bichal:footer -->
