@@ -1,0 +1,17 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "net.bichal.mods.tessera.mixin",
+	"compatibilityLevel": "${java}",
+	"refmap": "tessera.refmap.json",
+	"client": [
+		"KeyboardHandlerAccessor",
+		"SpriteContentsUploadMixin",
+		"TextureAtlasAccessor",
+		"TextureAtlasSpriteAccessor",
+		"TextureAtlasUploadMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
