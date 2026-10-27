@@ -1,5 +1,5 @@
 # Tessera build configuration. Merged at configuration time with
-# ../panzer-build-logic/common.stonecutter.properties.toml (panzer.settings):
+# ../bichal-build-logic/common.stonecutter.properties.toml (bichal.settings):
 # any table declared here replaces the common table of the same name.
 
 # No [jvm.modules.*] tables: Tessera needs no preview features or extra modules.
@@ -10,17 +10,17 @@
 [mod]
 id = "tessera"
 name = "Tessera"
-group = "com.panzer.mods"
-package = "com.panzer.mods.tessera"
+group = "net.bichal.mods"
+package = "net.bichal.mods.tessera"
 version = "0.3.1"
 authors = "Bichal"
 description = "Tessera: Minecraft's textures take less video memory, and look the same."
 side = "CLIENT"
-issues = "https://github.com/PanzerDevOrg/Tessera/issues"
+issues = "https://github.com/bichal/Tessera/issues"
 banner = "banner.png"
 
 # Celeris is both a compile dependency and a required runtime mod (declared in
-# neoforge.mods.toml). panzer-build-logic resolves `artifact` ({mc} = the
+# neoforge.mods.toml). bichal-build-logic resolves `artifact` ({mc} = the
 # Minecraft version being built) from mavenLocal() first, then from `maven`.
 # version: artifact version compiled against.
 # version_range: versions NeoForge accepts at runtime.
@@ -28,13 +28,13 @@ banner = "banner.png"
 [depends_on.celeris]
 version = "0.2.1"
 version_range = "[0.2.1,)"
-artifact = "com.panzer.mods:celeris-{mc}"
-maven = "https://panzerdevorg.github.io/Celeris/maven"
-repo = "PanzerDevOrg/Celeris"
+artifact = "net.bichal.mods:celeris-{mc}"
+maven = "https://bichal.github.io/Celeris/maven"
+repo = "bichal/Celeris"
 
 # JNI bridge (native/, CMake), staged from natives/<os>/<arch>/ into the jar.
 # No macOS: OpenGL 4.1 there has no BC7. Other platforms use the pure-Java
-# encoder. CI (panzer-build-logic mod-ci.yml): ci_prepare vendors bc7enc_rdo
+# encoder. CI (bichal-build-logic mod-ci.yml): ci_prepare vendors bc7enc_rdo
 # before every native build; ci_linux_script builds both Linux platforms in
 # one Ubuntu 20.04 container (binaries load on glibc 2.17+), Windows uses CMake.
 [natives.tessera_bridge]
@@ -43,11 +43,11 @@ platforms = ["windows-x86_64", "linux-x86_64", "linux-aarch64"]
 ci_prepare = "native/vendor/bc7enc_rdo/fetch.sh"
 ci_linux_script = "native/build-linux.sh"
 
-# Third-party code inside the jar (ids from panzer-build-logic/legal/catalog.toml).
+# Third-party code inside the jar (ids from bichal-build-logic/legal/catalog.toml).
 [legal.third_party]
 components = ["bc7enc_rdo"]
 
-# Releases and descriptions (panzer-build-logic/publishing). README.md is the
+# Releases and descriptions (bichal-build-logic/publishing). README.md is the
 # description on GitHub, Modrinth and CurseForge. Per-system jars (only that
 # OS's natives; "java" = none) are attached to GitHub releases only.
 [publish]
@@ -63,7 +63,7 @@ server_side = "unsupported"
 type = "required"
 modrinth = "sQphaM3I"
 curseforge = "celeris"
-github = "PanzerDevOrg/Celeris"
+github = "bichal/Celeris"
 
 # CI also runs `selftest`: a headless client (Xvfb + Mesa) reads every
 # compressed atlas back and checks it against its sprites (TesseraSelfTest).
@@ -71,13 +71,13 @@ github = "PanzerDevOrg/Celeris"
 gradle_tasks = "build buildAndCollect selftest"
 display = true
 
-# Versions: panzer-build-logic's "panzer" profile (1.21.1, 1.21.10, 1.21.11,
+# Versions: bichal-build-logic's "bichal" profile (1.21.1, 1.21.10, 1.21.11,
 # 26.1), each checked in CI by the client self-test.
 [stonecutter]
-profile = "panzer"
+profile = "bichal"
 vcs_version = "1.21.1"
 
-# panzer compat: every version a build claims (game_versions) runs the same
+# bichal compat: every version a build claims (game_versions) runs the same
 # self-test in a real game client of that version before it is claimed.
 [compat]
 side = "client"
@@ -92,7 +92,7 @@ default_quality_preset = 3
 
 # What each build claims to support (merged with the common TOML's block for
 # that version). Every game_versions entry passed the self-test in a real client
-# of that version (`panzer compat`). The 1.21.10
+# of that version (`bichal compat`). The 1.21.10
 # build's GpuTexture code path is what 1.21.5 introduced, so it takes 1.21.5+.
 ["1.21.1"]
 minecraft_version_range = "[1.21,1.21.5)"

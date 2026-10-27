@@ -1,18 +1,18 @@
 @file:Suppress("AvoidDuplicateDependencies")
 
-import com.panzer.gradle.PanzerModExtension
+import net.bichal.gradle.BichalModExtension
 
 plugins {
-    id("panzer.neoforge-mod")
+    id("bichal.neoforge-mod")
     `maven-publish`
     idea
 }
 
 // Celeris (dependency and Maven repositories), natives, neoforge.mods.toml
-// expansion, legal files and buildAndCollect come from panzer.neoforge-mod:
+// expansion, legal files and buildAndCollect come from bichal.neoforge-mod:
 // [depends_on.celeris], [natives.tessera_bridge] and [legal] in the TOML.
 
-val modProps = extensions.getByType(PanzerModExtension::class.java).props
+val modProps = extensions.getByType(BichalModExtension::class.java).props
 val defaultQualityPreset: Long = modProps.req(project, "compression.default_quality_preset").toLong()
 val mainSourceSet = sourceSets.main.get()
 val generatedResources: File = rootProject.file("src/generated/resources")

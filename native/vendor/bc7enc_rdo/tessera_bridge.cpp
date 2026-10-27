@@ -143,7 +143,7 @@ static constexpr jint kTesseraJniAbiVersion = 1;
 extern "C" {
 
 JNIEXPORT jint JNICALL
-Java_com_panzer_mods_tessera_compress_backend_JniCompressionBackend_nativeAbiVersion(JNIEnv*, jclass) {
+Java_com_bichal_mods_tessera_compress_backend_JniCompressionBackend_nativeAbiVersion(JNIEnv*, jclass) {
     return kTesseraJniAbiVersion;
 }
 
@@ -151,7 +151,7 @@ Java_com_panzer_mods_tessera_compress_backend_JniCompressionBackend_nativeAbiVer
 /// @param dst  direct ByteBuffer receiving BC blocks at its base address
 /// @return bytes written, -1 on failure, or -(required) - 2 if dst is too small
 JNIEXPORT jlong JNICALL
-Java_com_panzer_mods_tessera_compress_backend_JniCompressionBackend_nativeCompress(
+Java_com_bichal_mods_tessera_compress_backend_JniCompressionBackend_nativeCompress(
     JNIEnv* env, jclass, jobject src, jint width, jint height, jint quality, jboolean bc7, jobject dst
 ) {
     if (width <= 0 || height <= 0) {
