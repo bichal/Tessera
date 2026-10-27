@@ -1,0 +1,76 @@
+# Release gate for v* tags. The native bridge must build from source, its JNI
+# symbols must match the Java native methods, its glibc floor must be 2.17 or
+# lower, and its JNI test must pass. Publishing runs in ci.yml (bichal-build-logic
+# mod-ci.yml), which `bichal sync` generates: make "Release gate / native" a
+# required check for tags (repository ruleset) so a failing gate blocks the release.
+name: Release gate
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native:
+    name: native gate (linux-x86_64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+        with:
+          path: mod
+          persist-credentials: false
+
+      # The build logic is a sibling checkout (see settings.gradle.kts). Pinned to the
+      # commit ci.yml runs from.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+        with:
+          repository: bichal/BichalBuildLogic
+          ref: 4f611b9df151b8a3362eeae6e8f597beb2d473c4
+          path: bichal-build-logic
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: No native binaries tracked
+        working-directory: mod
+        run: sh scripts/check-no-binaries.sh
+
+      # Built in Docker on Ubuntu 20.04 (glibc 2.31), like the released binaries.
+      - name: Build the bridge from source
+        working-directory: mod
+        run: |
+          (cd native/vendor/bc7enc_rdo && ./fetch.sh)
+          ./native/build-linux.sh
+
+      - name: glibc floor is 2.17 or lower
+        working-directory: mod
+        run: |
+          for f in natives/linux/*/libtessera_bridge.so; do
+            max=$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -n 1)
+            echo "$f requires $max"
+            top=$(printf '%s\n%s\n' "${max#GLIBC_}" 2.17 | sort -V | tail -n 1)
+            if [ "$top" != "2.17" ]; then
+              echo "requires $max, above GLIBC_2.17" >&2
+              exit 1
+            fi
+          done
+
+      - name: JNI symbols match the Java sources
+        working-directory: mod
+        env:
+          REQUIRE_LIBRARIES: "1"
+        run: sh scripts/verify-jni-symbols.sh natives src/main/java
+
+      - name: Native bridge test and symbol gate
+        working-directory: mod
+        run: ./gradlew :1.21.1:test :1.21.1:verifyJniSymbols -PrequireNative=true --no-daemon

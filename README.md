@@ -160,8 +160,8 @@ mkdir -p natives/windows/x86_64 && cp build-native/windows/Release/tessera_bridg
 JAVA_HOME=<path to a JDK> ./native/build-linux.sh
 ```
 
-The prebuilt binaries are committed under `natives/<os>/<arch>/`. CI rebuilds all three from `native/` on every push
-and bundles those fresh builds into the released jars.
+The binaries are not committed. CI builds them from `native/` on every platform's runner and bundles them into the
+released jars. Locally, a build without them uses the Java encoder.
 
 ### Releases and descriptions
 

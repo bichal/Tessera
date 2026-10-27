@@ -1,6 +1,7 @@
 // tessera_bridge.cpp
 
 #include "rdo_bc_encoder.h"
+#include "bc7decomp.h"
 
 #include <cstring>
 #include <cstdint>
@@ -138,7 +139,7 @@ static int64_t EncodeInto(
 
 /// Bumped on any signature/semantics change; checked by JniCompressionBackend
 /// so a stale library in the extraction cache is rejected instead of misbehaving.
-static constexpr jint kTesseraJniAbiVersion = 1;
+static constexpr jint kTesseraJniAbiVersion = 2;
 
 extern "C" {
 
@@ -170,6 +171,49 @@ Java_net_bichal_mods_tessera_compress_backend_JniCompressionBackend_nativeCompre
     const rdo_bc::rdo_bc_params params = bc7 ? ParamsForPreset(quality) : Bc1ParamsForPreset(quality);
     return static_cast<jlong>(EncodeInto(in, static_cast<uint32_t>(width), static_cast<uint32_t>(height),
                                          params, out, static_cast<uint64_t>(out_capacity)));
+}
+
+/// Decodes BC7 blocks back to RGBA8 (the round trip the self-test checks).
+/// @param src  direct ByteBuffer of BC7 blocks, row-major, 16 bytes each
+/// @param dst  direct ByteBuffer receiving width * height RGBA8 texels
+/// @return 0 on success, -1 on bad arguments or an block the decoder rejects
+JNIEXPORT jint JNICALL
+Java_net_bichal_mods_tessera_compress_backend_JniCompressionBackend_nativeDecompressBc7(
+    JNIEnv* env, jclass, jobject src, jint width, jint height, jobject dst
+) {
+    if (width <= 0 || height <= 0) {
+        return -1;
+    }
+    auto* in = static_cast<const uint8_t*>(env->GetDirectBufferAddress(src));
+    auto* out = static_cast<uint8_t*>(env->GetDirectBufferAddress(dst));
+    jlong in_capacity = env->GetDirectBufferCapacity(src);
+    jlong out_capacity = env->GetDirectBufferCapacity(dst);
+    const uint64_t blocks_x = (static_cast<uint64_t>(width) + 3u) / 4u;
+    const uint64_t blocks_y = (static_cast<uint64_t>(height) + 3u) / 4u;
+    const uint64_t need_in = blocks_x * blocks_y * 16u;
+    const uint64_t need_out = static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u;
+    if (in == nullptr || out == nullptr || in_capacity < 0 || out_capacity < 0
+        || static_cast<uint64_t>(in_capacity) < need_in || static_cast<uint64_t>(out_capacity) < need_out) {
+        return -1;
+    }
+    for (uint64_t by = 0; by < blocks_y; ++by) {
+        for (uint64_t bx = 0; bx < blocks_x; ++bx) {
+            bc7decomp::color_rgba texels[16];
+            if (!bc7decomp::unpack_bc7(in + (by * blocks_x + bx) * 16u, texels)) {
+                return -1;
+            }
+            // Partial blocks at the right and bottom edges are cropped.
+            for (uint64_t ty = 0; ty < 4 && by * 4u + ty < static_cast<uint64_t>(height); ++ty) {
+                for (uint64_t tx = 0; tx < 4 && bx * 4u + tx < static_cast<uint64_t>(width); ++tx) {
+                    const uint64_t x = bx * 4u + tx;
+                    const uint64_t y = by * 4u + ty;
+                    std::memcpy(out + (y * static_cast<uint64_t>(width) + x) * 4u,
+                                texels[ty * 4u + tx].m_comps, 4);
+                }
+            }
+        }
+    }
+    return 0;
 }
 
 }  // extern "C"
