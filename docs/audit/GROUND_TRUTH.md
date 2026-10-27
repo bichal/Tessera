@@ -129,3 +129,22 @@ grep -rn "defaultQualityPreset" src                       # no results
 
 At the time of this commit the Gradle build was still running in the sandbox. Its result is recorded in a follow-up
 commit on the same branch; nothing in this file claims a build result that was not observed.
+
+## 9. Build verification status
+
+`./gradlew :1.21.1:build` with JDK 25 and bichal-build-logic from this sandbox (Maven Central replaced by Google's
+mirror, as for Celeris): **BUILD SUCCESSFUL**. Only 2 tests run (`AtlasPolicyTest`); none of them exercises the JNI
+backend.
+
+Native bridge, checked separately:
+
+| Library | Exports | Loads through `JniCompressionBackend` |
+|---|---|---|
+| committed `natives/linux/x86_64/libtessera_bridge.so` | `Java_com_panzer_mods_tessera_...` | **No**: `UnsatisfiedLinkError` for `nativeAbiVersion()`. The shipped jar uses the Java encoder |
+| `native/` built from this commit (scratch copy, `fetch.sh` run there, `bc7enc_rdo@b9438627`) | `Java_net_bichal_mods_tessera_...` | **Yes**: `abi=1`, matching `EXPECTED_ABI_VERSION = 1` |
+
+The committed binaries are **not** replaced in this commit: they are release artifacts, and replacing them is a
+decision for the maintainer. Until they are rebuilt, the released jars keep the Java encoder.
+
+Not run here: `selftest` (headless client), `buildAndCollect`, the other Minecraft nodes, and a comparison of the
+native and Java encoders on the same atlases.
