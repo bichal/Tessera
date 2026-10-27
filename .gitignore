@@ -23,3 +23,15 @@ native/vendor/bc7enc_rdo/*
 !native/vendor/bc7enc_rdo/LICENSE
 !native/vendor/bc7enc_rdo/fetch.sh
 !native/vendor/bc7enc_rdo/VENDORING.md
+
+# Native binaries are never committed: CI builds them per platform
+# (bichal-build-logic mod-ci.yml, [natives.tessera_bridge]); see README, "Native encoder".
+*.so
+*.dll
+*.dylib
+*.lib
+*.exp
+*.pdb
+*.a
+*.o
+*.obj
