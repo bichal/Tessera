@@ -14,8 +14,9 @@
 # signature suffixes this check does not model, so they fail too.
 #
 # Tools, by library format: nm (ELF), llvm-nm (Mach-O: GNU nm cannot read it),
-# objdump (PE export table: nm sees no exports in a DLL without a COFF symbol
-# table), plus POSIX sh, awk, sed, grep, sort, comm, find.
+# llvm-readobj (PE export table: nm sees no exports in a DLL without a COFF
+# symbol table, and objdump does not read ARM64 PE exports), plus POSIX sh, awk,
+# sed, grep, sort, comm, find.
 set -eu
 
 if [ "$#" -lt 2 ]; then
@@ -71,23 +72,28 @@ if ! command -v nm >/dev/null 2>&1; then
     echo "verify-jni-symbols: nm not found; cannot read exported symbols" >&2
     exit 2
 fi
-llvm_nm=
-for tool in llvm-nm llvm-nm-*; do
-    if command -v "$tool" >/dev/null 2>&1; then llvm_nm=$tool; break; fi
-done
+# First of the given tools on PATH (unversioned name, then llvm-*-N as shipped by apt).
+find_tool() {
+    for tool in "$1" "$1"-*; do
+        if command -v "$tool" >/dev/null 2>&1; then echo "$tool"; return 0; fi
+    done
+    return 1
+}
+llvm_nm=$(find_tool llvm-nm) || llvm_nm=
+llvm_readobj=$(find_tool llvm-readobj) || llvm_readobj=
 if grep -q '\.dylib$' "$tmp/libs" && [ -z "$llvm_nm" ]; then
     echo "verify-jni-symbols: llvm-nm not found; needed to read Mach-O (.dylib)" >&2
     exit 2
 fi
-if grep -q '\.dll$' "$tmp/libs" && ! command -v objdump >/dev/null 2>&1; then
-    echo "verify-jni-symbols: objdump not found; needed to read PE exports (.dll)" >&2
+if grep -q '\.dll$' "$tmp/libs" && [ -z "$llvm_readobj" ]; then
+    echo "verify-jni-symbols: llvm-readobj not found; needed to read PE exports (.dll)" >&2
     exit 2
 fi
 
 exports_of() {
     case $1 in
         *.dylib) "$llvm_nm" -gU "$1" | awk 'NF >= 2 { print $NF }' | sed 's/^_//' ;;
-        *.dll)   objdump -p "$1" | awk '/^\t\[ *[0-9]+\] / { sub(/^[^\]]*\] */, ""); print $1 }' ;;
+        *.dll)   "$llvm_readobj" --coff-exports "$1" | awk '$1 == "Name:" { print $2 }' ;;
         *)       nm -D --defined-only "$1" | awk 'NF >= 2 && $(NF-1) ~ /^[TtWw]$/ { print $NF }' ;;
     esac
 }
