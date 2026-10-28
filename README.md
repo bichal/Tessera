@@ -43,7 +43,7 @@ the developer guide.
 
 <p align="center">
 <a href="https://github.com/bichal/Tessera/issues"><img src="https://img.shields.io/badge/Found_a_bug-Report_it-d73a4a?style=for-the-badge&logo=github&logoColor=white" alt="Report a bug"></a>
-<a href="https://github.com/bichal/Tessera/tree/master/docs/changelogs"><img src="https://img.shields.io/badge/Whats_new-Changelog-2f81f7?style=for-the-badge&logo=github&logoColor=white" alt="Changelog"></a>
+<a href="https://github.com/bichal/Tessera/tree/main/docs/changelogs"><img src="https://img.shields.io/badge/Whats_new-Changelog-2f81f7?style=for-the-badge&logo=github&logoColor=white" alt="Changelog"></a>
 </p>
 
 <!-- bichal:license -->
