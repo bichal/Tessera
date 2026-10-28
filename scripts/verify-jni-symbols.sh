@@ -13,8 +13,9 @@
 # fails here). Overloaded native methods are not supported: they need JNI
 # signature suffixes this check does not model, so they fail too.
 #
-# Tools: nm (GNU binutils: ELF and PE, or Apple's nm for Mach-O), POSIX sh, awk,
-# sed, grep, sort, comm, find. Git Bash on Windows works if nm is on PATH.
+# Tools, by library format: nm (ELF), llvm-nm (Mach-O: GNU nm cannot read it),
+# objdump (PE export table: nm sees no exports in a DLL without a COFF symbol
+# table), plus POSIX sh, awk, sed, grep, sort, comm, find.
 set -eu
 
 if [ "$#" -lt 2 ]; then
@@ -70,11 +71,23 @@ if ! command -v nm >/dev/null 2>&1; then
     echo "verify-jni-symbols: nm not found; cannot read exported symbols" >&2
     exit 2
 fi
+llvm_nm=
+for tool in llvm-nm llvm-nm-*; do
+    if command -v "$tool" >/dev/null 2>&1; then llvm_nm=$tool; break; fi
+done
+if grep -q '\.dylib$' "$tmp/libs" && [ -z "$llvm_nm" ]; then
+    echo "verify-jni-symbols: llvm-nm not found; needed to read Mach-O (.dylib)" >&2
+    exit 2
+fi
+if grep -q '\.dll$' "$tmp/libs" && ! command -v objdump >/dev/null 2>&1; then
+    echo "verify-jni-symbols: objdump not found; needed to read PE exports (.dll)" >&2
+    exit 2
+fi
 
 exports_of() {
     case $1 in
-        *.dylib) nm -gU "$1" | awk 'NF >= 2 { print $NF }' | sed 's/^_//' ;;
-        *.dll)   nm --defined-only "$1" | awk 'NF >= 2 && $(NF-1) ~ /^[TtWw]$/ { print $NF }' ;;
+        *.dylib) "$llvm_nm" -gU "$1" | awk 'NF >= 2 { print $NF }' | sed 's/^_//' ;;
+        *.dll)   objdump -p "$1" | awk '/^\t\[ *[0-9]+\] / { sub(/^[^\]]*\] */, ""); print $1 }' ;;
         *)       nm -D --defined-only "$1" | awk 'NF >= 2 && $(NF-1) ~ /^[TtWw]$/ { print $NF }' ;;
     esac
 }
