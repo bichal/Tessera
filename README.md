@@ -11,15 +11,21 @@
 > much memory.
 
 <!-- publish:only modrinth -->
-Download on [Modrinth](https://modrinth.com/mod/olpctCIW).
+<p align="center">
+<a href="https://modrinth.com/mod/olpctCIW"><img src="https://img.shields.io/badge/Download_on-Modrinth-1bd96a?style=for-the-badge&logo=modrinth&logoColor=white" alt="Download on Modrinth"></a>
+</p>
 <!-- /publish:only -->
 
 <!-- publish:only curseforge -->
-Download on [CurseForge](https://www.curseforge.com/projects/1643537).
+<p align="center">
+<a href="https://www.curseforge.com/projects/1643537"><img src="https://img.shields.io/badge/Download_on-CurseForge-f16436?style=for-the-badge&logo=curseforge&logoColor=white" alt="Download on CurseForge"></a>
+</p>
 <!-- /publish:only -->
 
 <!-- publish:only github -->
-Download on [GitHub](https://github.com/bichal/Tessera/releases).
+<p align="center">
+<a href="https://github.com/bichal/Tessera/releases"><img src="https://img.shields.io/badge/Download_on-GitHub-24292f?style=for-the-badge&logo=github&logoColor=white" alt="Download on GitHub"></a>
+</p>
 <!-- /publish:only -->
 
 ## What it does
