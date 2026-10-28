@@ -1,26 +1,38 @@
 ![Tessera](./docs/media/banner.png)
 
 <p align="center">
-<img src="https://img.shields.io/badge/Video%20memory-up%20to%20%E2%88%9275%25-1f9d55?style=for-the-badge" alt="Up to 75% less video memory">
-<img src="https://img.shields.io/badge/Minecraft-1.21%20--%2026.3-3c8527?style=for-the-badge" alt="Minecraft 1.21 – 1.21.11 and 26.1 – 26.3">
-<img src="https://img.shields.io/badge/NeoForge-Client%20only-e8710a?style=for-the-badge" alt="NeoForge, client only">
+<img src="https://img.shields.io/badge/Video_memory-up_to_75_percent_less-1f9d55?style=for-the-badge" alt="Up to 75% less video memory">
+<img src="https://img.shields.io/badge/Minecraft-1.21_--_26.3-3c8527?style=for-the-badge" alt="Minecraft 1.21 to 1.21.11 and 26.1 to 26.3">
+<img src="https://img.shields.io/badge/NeoForge-Client_only-e8710a?style=for-the-badge" alt="NeoForge, client only">
 </p>
 
 > **Tessera makes Minecraft use less video memory.** It shrinks the game's textures on your graphics card by up to
 > **75%**, and the game looks exactly the same. Helpful with big resource packs, large modpacks, or a GPU without
 > much memory.
 
-## ✨ Features
+<!-- publish:only modrinth -->
+**Download:** the Modrinth file list below. Pick the file for your Minecraft version.
+<!-- /publish:only -->
 
-- 🎯 **Nothing to set up:** install it and play.
-- 🌊 **Animations keep moving:** water, lava, fire and every other animated texture.
-- 🧊 **No freezes** while textures load: the work happens in the background.
-- 🎨 **Shaders welcome:** it doesn't change how the game draws, so shaders and other visual mods keep working.
-- 📊 **See the savings:** press F3 to see how much video memory it saves (on every version except 1.21.5 – 1.21.9).
+<!-- publish:only curseforge -->
+**Download:** the CurseForge file list below. Pick the file for your Minecraft version.
+<!-- /publish:only -->
+
+<!-- publish:only github -->
+**Download:** the jars are attached to each [GitHub release](https://github.com/bichal/Tessera/releases).
+<!-- /publish:only -->
+
+## Features
+
+- **Nothing to set up:** install it and play.
+- **Animations keep moving:** water, lava, fire and every other animated texture.
+- **No freezes** while textures load: the work happens in the background.
+- **Shaders welcome:** it doesn't change how the game draws, so shaders and other visual mods keep working.
+- **See the savings:** press F3 to see how much video memory it saves (on every version except 1.21.5 - 1.21.9).
 
 > **You also need [Celeris](https://github.com/bichal/Celeris).** Put both in your `mods` folder.
 
-## 📉 What it saves
+## What it saves
 
 This is Tessera's corner of the F3 screen in a normal world: the textures take **3.96 MB** of video memory instead
 of **15.84 MB**.
@@ -33,24 +45,24 @@ The more textures your packs and mods add, the more it saves. An earlier version
 |:---:|:---:|
 | ![Earlier version saving 6.13 MB](./docs/media/old_active_mod.png) | ![Current version saving 11.88 MB](./docs/media/active_mod.png) |
 
-## 🖥️ Will it work for me?
+## Will it work for me?
 
 | Your setup | Tessera |
 |---|---|
-| **Minecraft** 1.21 – 1.21.11 and 26.1 – 26.3, NeoForge | ✅ Download the file made for your version |
-| **Windows** or **Linux** | ✅ Supported |
-| **macOS** | ❌ macOS doesn't support the texture format Tessera needs |
-| **Servers** | ➖ Not needed: it runs on your computer only, and you can join any server with it |
+| **Minecraft** 1.21 - 1.21.11 and 26.1 - 26.3, NeoForge |  Download the file made for your version |
+| **Windows** or **Linux** |  Supported |
+| **macOS** |  macOS doesn't support the texture format Tessera needs |
+| **Servers** |  Not needed: it runs on your computer only, and you can join any server with it |
 
-## 📚 Learn more
+## Learn more
 
 Settings, extra speed tips, how it works and the full version list are on GitHub.
 
 <p align="center">
-<a href="https://github.com/bichal/Tessera"><img src="https://img.shields.io/badge/GitHub-Guide%20%26%20source-24292f?style=for-the-badge&logo=github&logoColor=white" alt="Guide and source on GitHub"></a>
+<a href="https://github.com/bichal/Tessera"><img src="https://img.shields.io/badge/GitHub-Guide_and_source-24292f?style=for-the-badge&logo=github&logoColor=white" alt="Guide and source on GitHub"></a>
 <a href="https://github.com/bichal/Celeris"><img src="https://img.shields.io/badge/Needs-Celeris-7c3aed?style=for-the-badge" alt="Requires Celeris"></a>
-<a href="https://github.com/bichal/Tessera/issues"><img src="https://img.shields.io/badge/Found%20a%20bug%3F-Tell%20us-d73a4a?style=for-the-badge&logo=github&logoColor=white" alt="Report a bug"></a>
-<a href="https://github.com/bichal/Tessera/tree/master/docs/changelogs"><img src="https://img.shields.io/badge/What's%20new-Changelog-2f81f7?style=for-the-badge&logo=github&logoColor=white" alt="Changelog"></a>
+<a href="https://github.com/bichal/Tessera/issues"><img src="https://img.shields.io/badge/Found_a_bug-Report_it-d73a4a?style=for-the-badge&logo=github&logoColor=white" alt="Report a bug"></a>
+<a href="https://github.com/bichal/Tessera/tree/master/docs/changelogs"><img src="https://img.shields.io/badge/Whats_new-Changelog-2f81f7?style=for-the-badge&logo=github&logoColor=white" alt="Changelog"></a>
 </p>
 
 <!-- publish:off -->
@@ -59,10 +71,10 @@ Settings, extra speed tips, how it works and the full version list are on GitHub
 
 | Minecraft | Tessera file |
 |---|---|
-| 1.21 – 1.21.4 | `tessera-<version>+1.21.1.jar` |
-| 1.21.5 – 1.21.10 | `tessera-<version>+1.21.10.jar` |
+| 1.21 - 1.21.4 | `tessera-<version>+1.21.1.jar` |
+| 1.21.5 - 1.21.10 | `tessera-<version>+1.21.10.jar` |
 | 1.21.11 | `tessera-<version>+1.21.11.jar` |
-| 26.1 – 26.3 | `tessera-<version>+26.1.jar` |
+| 26.1 - 26.3 | `tessera-<version>+26.1.jar` |
 
 ## JVM flags (optional)
 
@@ -77,9 +89,9 @@ Leave `--enable-native-access` out: on Java 21 it switches Celeris's native code
 
 Where to put them:
 
-- **Modrinth App**: instance → *Settings → Java and memory → Java arguments*
-- **CurseForge App**: *Settings → Minecraft → Additional arguments*
-- **Prism Launcher**: instance → *Settings → Java → JVM arguments*
+- **Modrinth App**: instance > Settings > Java and memory > Java arguments
+- **CurseForge App**: Settings > Minecraft > Additional arguments
+- **Prism Launcher**: instance > Settings > Java > JVM arguments
 
 Without the flags nothing breaks; each feature uses its pure-Java fallback. Use `--enable-preview` only with the Java 21
 that Minecraft 1.21.x ships with.
@@ -112,7 +124,7 @@ Source code, issues and docs: **[github.com/bichal/Tessera](https://github.com/b
 - A content-addressed disk cache (`tessera-cache/`, size-capped, least-recently-used eviction) skips re-encoding
   unchanged atlases.
 - Animated sprites are written as BC blocks with `glCompressedTexSubImage2D`: keyframes are encoded once and cached,
-  interpolated frames on the fly; at mip levels smaller than a 4×4 block only the affected blocks are patched.
+  interpolated frames on the fly; at mip levels smaller than a 4 times4 block only the affected blocks are patched.
 - The native encoder ([bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo)) is loaded over JNI (no launch flags),
   bundled for Windows x86_64, Linux x86_64 and Linux AArch64 (glibc 2.17+). Anywhere else, or if it fails to load,
   the pure-Java encoder takes over.
@@ -208,5 +220,5 @@ See [`LICENSE`](./LICENSE) for the full summary.
 ---
 
 <!-- bichal:footer -->
-Code: **AGPL-3.0** · Art: **CC BY-NC-SA 4.0** · Made by **Bichal**
+Code: **AGPL-3.0** | Art: **CC BY-NC-SA 4.0** | Made by **Bichal**
 <!-- /bichal:footer -->
