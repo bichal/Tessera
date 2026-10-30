@@ -25,6 +25,8 @@ val selftestMods = findProperty("selftestMods") as String?
 val selftestFormats = findProperty("selftestFormats") as String?
 // -PselftestCompat=true runs the self-test without the native bridge (the pure-Java encoders).
 val selftestCompat = (findProperty("selftestCompat") as String?) == "true"
+// -PselftestDump=<dir> writes every compressed atlas (original and decoded, raw RGBA) there.
+val selftestDump = findProperty("selftestDump") as String?
 // -PselftestWorld=<commands file> (1.21.1): builds a showcase world and waits for a screenshot (see TesseraSelfTest).
 val selftestWorldCommands = findProperty("selftestWorld") as String?
 val selftestDir = rootProject.file("versions/${modProps.currentVersion}/run-selftest")
@@ -55,6 +57,7 @@ pluginManager.withPlugin("net.neoforged.moddev") { configure<NeoForgeExtension> 
             systemProperty("tessera.selftest.version", modProps.currentVersion)
             if (selftestFormats != null) systemProperty("tessera.formats", selftestFormats)
             if (selftestCompat) systemProperty("tessera.compatMode", "true")
+            if (selftestDump != null) systemProperty("tessera.selftest.dump", selftestDump)
             jvmArgument("-Xmx2G")
         }
 
@@ -102,6 +105,7 @@ if (modProps.isFabric) {
                 if ((findProperty("selftestScreen") as String?) == "true") vmArg("-Dtessera.selftest.screen=true")
                 if (selftestFormats != null) vmArg("-Dtessera.formats=$selftestFormats")
                 if (selftestCompat) vmArg("-Dtessera.compatMode=true")
+                if (selftestDump != null) vmArg("-Dtessera.selftest.dump=$selftestDump")
                 if (selftestMods != null) vmArg("-Dfabric.addMods=$selftestMods")
                 vmArg("-Dtessera.selftest.version=${modProps.currentVersion}")
                 vmArg("-Xmx2G")
