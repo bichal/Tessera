@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           repository: bichal/BichalBuildLogic
-          ref: 3693b5562a3f9e265ef8e0024e4efc2d180cc737
+          ref: 36f54eefbdb7e6d6f8afe1626015d1c2ffa503fb
           path: bichal-build-logic
           persist-credentials: false
 
