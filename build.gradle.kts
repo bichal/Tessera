@@ -71,6 +71,17 @@ val accessWidener = if (modProps.mcVersion.startsWith("1.")) "tessera-named.acce
 if (modProps.isFabric) {
     extensions.configure<net.fabricmc.loom.api.LoomGradleExtensionAPI>("loom") {
         accessWidenerPath.set(rootProject.file("src/main/resources/$accessWidener"))
+        runs {
+            // Headless client check of the compressed atlases: TesseraSelfTest.
+            create("selftest") {
+                client()
+                runDir("run-selftest")
+                vmArg("-Dtessera.selftest=true")
+                vmArg("-Dtessera.compressAnimated=true")
+                vmArg("-Dtessera.selftest.version=${modProps.currentVersion}")
+                vmArg("-Xmx2G")
+            }
+        }
     }
 }
 tasks.named<ProcessResources>("processResources") {
@@ -89,8 +100,8 @@ sourceSets.main {
     }
 }
 
-// The headless client self-test runs on the NeoForge nodes only.
-if (!modProps.isFabric) {
+// The headless client self-test (runSelftest: ModDevGradle's run on NeoForge, Loom's on Fabric).
+run {
     // A fresh game directory for every check: no saved options (accessibility
     // onboarding off, quiet), no stale report.
     val prepareSelftest = tasks.register("prepareSelftest") {
