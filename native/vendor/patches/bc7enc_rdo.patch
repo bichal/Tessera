@@ -1,0 +1,95 @@
+--- a/ert.h	2026-10-30 16:23:26.251152917 +0000
++++ b/ert.h	2026-10-30 12:27:37.506034478 +0000
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <cstdint>
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
+--- a/utils.cpp	2026-10-30 16:23:26.507152932 +0000
++++ b/utils.cpp	2026-10-30 12:27:37.526024507 +0000
+@@ -1,7 +1,5 @@
+ // File: utils.cpp
+ #include "utils.h"
+-#include "lodepng.h"
+-#include "miniz.h"
+ 
+ namespace utils 
+ {
+@@ -166,44 +164,22 @@
+ 
+ bool load_png(const char* pFilename, image_u8& img)
+ {
++	// Tessera: lodepng intentionally not vendored (in-memory RGBA8 only,
++	// no PNG file I/O in the compression path). Linkable stub.
++	(void)pFilename;
+ 	img.clear();
+-
+-	std::vector<unsigned char> pixels;
+-	unsigned int w = 0, h = 0;
+-	unsigned int e = lodepng::decode(pixels, w, h, pFilename);
+-	if (e != 0)
+-	{
+-		fprintf(stderr, "Failed loading PNG file %s\n", pFilename);
+-		return false;
+-	}
+-
+-	img.init(w, h);
+-	memcpy(&img.get_pixels()[0], &pixels[0], w * h * sizeof(uint32_t));
+-
+-	return true;
++	fprintf(stderr, "load_png: PNG file I/O is disabled in this build (lodepng not vendored)\n");
++	return false;
+ }
+ 
+ bool save_png(const char* pFilename, const image_u8& img, bool save_alpha)
+ {
+-	const uint32_t w = img.width();
+-	const uint32_t h = img.height();
+-
+-	std::vector<unsigned char> pixels;
+-	if (save_alpha)
+-	{
+-		pixels.resize(w * h * sizeof(color_quad_u8));
+-		memcpy(&pixels[0], &img.get_pixels()[0], w * h * sizeof(color_quad_u8));
+-	}
+-	else
+-	{
+-		pixels.resize(w * h * 3);
+-		unsigned char* pDst = &pixels[0];
+-		for (uint32_t y = 0; y < h; y++)
+-			for (uint32_t x = 0; x < w; x++, pDst += 3)
+-				pDst[0] = img(x, y)[0], pDst[1] = img(x, y)[1], pDst[2] = img(x, y)[2];
+-	}
+-
+-	return lodepng::encode(pFilename, pixels, w, h, save_alpha ? LCT_RGBA : LCT_RGB) == 0;
++	// Tessera: see load_png() above. rdo_bc_encoder.cpp only calls this
++	// behind `if (rdo_debug_output)`, which the bridge never enables, so
++	// this stub is never actually reached at runtime.
++	(void)pFilename; (void)img; (void)save_alpha;
++	fprintf(stderr, "save_png: PNG file I/O is disabled in this build (lodepng not vendored)\n");
++	return false;
+ }
+ 
+ static float gauss(int x, int y, float sigma_sqr)
+@@ -888,14 +864,11 @@
+ 
+ uint32_t get_deflate_size(const void* pData, size_t data_size)
+ {
+-	size_t comp_size = 0;
+-	void* pPre_RDO_Comp_data = tdefl_compress_mem_to_heap(pData, data_size, &comp_size, TDEFL_MAX_PROBES_MASK);// TDEFL_DEFAULT_MAX_PROBES);
+-	mz_free(pPre_RDO_Comp_data);
+-
+-	if (comp_size > UINT32_MAX)
+-		return UINT32_MAX;
+-
+-	return (uint32_t)comp_size;
++	// Tessera: miniz intentionally not vendored. Only used by upstream's
++	// CLI tool (not vendored here) for LZ-compressibility stats; nothing
++	// in the bridge's compression path calls this. Linkable stub.
++	(void)pData; (void)data_size;
++	return 0;
+ }
+ 
+ } // namespace utils

@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           repository: bichal/BichalBuildLogic
-          ref: 4f611b9df151b8a3362eeae6e8f597beb2d473c4
+          ref: 3693b5562a3f9e265ef8e0024e4efc2d180cc737
           path: bichal-build-logic
           persist-credentials: false
 
@@ -49,7 +49,7 @@ jobs:
       - name: Build the bridge from source
         working-directory: mod
         run: |
-          (cd native/vendor/bc7enc_rdo && ./fetch.sh)
+          python3 ../bichal-build-logic/tools/bichal.py vendor .
           ./native/build-linux.sh
 
       - name: glibc floor is 2.17 or lower
