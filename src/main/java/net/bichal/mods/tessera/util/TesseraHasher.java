@@ -22,13 +22,18 @@ public final class TesseraHasher {
         return HexFormat.of().formatHex(digest.digest());
     }
 
+    public static String hex(MessageDigest digest) {
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
     public static String hashContent(byte[] content) {
         MessageDigest digest = newDigest();
         digest.update(content);
         return HexFormat.of().formatHex(digest.digest());
     }
 
-    private static MessageDigest newDigest() {
+    /** A fresh SHA-256 for hashing in pieces; finish with {@link #hex}. */
+    public static MessageDigest newDigest() {
         try {
             return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
