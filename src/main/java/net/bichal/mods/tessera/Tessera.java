@@ -11,9 +11,9 @@ import net.bichal.mods.tessera.selftest.TesseraSelfTest;
 import net.bichal.mods.tessera.vram.VramBudgetEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import net.minecraft.client.Minecraft;
 //? if neoforge {
 import net.bichal.mods.tessera.datagen.DataGenerators;
-import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -73,6 +73,29 @@ public final class Tessera {
         if (Bc1TextureFormatSupport.isKnown() && !Bc1TextureFormatSupport.isSupported()) {
             LOGGER.warn("This GPU/driver does not expose GL_EXT_texture_compression_s3tc (BC1).");
         }
+    }
+
+    /**
+     * Applies a change of the reload-sensitive settings: rebuilds the cache against a new
+     * directory and reloads resources so every atlas is compressed again. Both loaders call it
+     * (NeoForge from its config reload event, Fabric from the settings screen).
+     */
+    public static void applySettingsChange(Config.ReloadSensitiveSnapshot previous, Config.ReloadSensitiveSnapshot current) {
+        if (current.equals(previous)) {
+            return;
+        }
+
+        if (!current.cacheDirectory().equals(previous.cacheDirectory())) {
+            AtlasCompressionDriver.invalidateCache();
+        }
+
+        LOGGER.info("Tessera settings changed in a way that affects atlas compression ({} -> {}); "
+                + "reloading resources to apply.", previous, current);
+
+        // The change may come from a thread other than the render thread (NeoForge's config file
+        // watcher), and Minecraft's resource-reload entry point asserts render-thread ownership,
+        // so it always hops through Minecraft#execute.
+        Minecraft.getInstance().execute(() -> Minecraft.getInstance().reloadResourcePacks());
     }
 
     //? if neoforge {
@@ -150,26 +173,7 @@ public final class Tessera {
         Config.ReloadSensitiveSnapshot previous = this.lastAppliedSettings;
         this.lastAppliedSettings = current;
 
-        if (current.equals(previous)) {
-            return;
-        }
-
-        if (!current.cacheDirectory().equals(previous.cacheDirectory())) {
-            AtlasCompressionDriver.invalidateCache();
-        }
-
-        LOGGER.info("Tessera settings changed in a way that affects atlas splitting ({} -> {}); "
-                + "reloading resources to apply.", previous, current);
-
-        // ModConfigEvent.Reloading can fire from NightConfig's own
-        // background file-watcher thread, not just the render thread (the
-        // ConfigurationScreen save path happens to already be on the
-        // render thread, but this listener has no way to distinguish that
-        // from a direct file edit picked up by the watcher). Minecraft's
-        // resource-reload entry point asserts render-thread ownership, so
-        // this must always hop through Minecraft#execute rather than
-        // calling reloadResourcePacks() directly here.
-        Minecraft.getInstance().execute(() -> Minecraft.getInstance().reloadResourcePacks());
+        applySettingsChange(previous, current);
     }
     //?}
 }
