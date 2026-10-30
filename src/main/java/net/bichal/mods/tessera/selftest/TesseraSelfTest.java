@@ -122,15 +122,18 @@ public final class TesseraSelfTest {
                 LOGGER.info("Tessera world shot: in the world, running {} commands", worldCommands.size());
             }
             int since = ticks - worldJoinedTick;
-            // One command a tick, after the world has settled.
-            if (since >= 100 && since < 100 + worldCommands.size()) {
-                String command = worldCommands.get(since - 100).strip();
-                if (!command.isEmpty()) {
-                    mc.player.connection.sendCommand(command);
+            // One command every third tick (the server drops commands sent faster), after the world has settled.
+            int steps = worldCommands.size() * 3;
+            if (since >= 100 && since < 100 + steps) {
+                if ((since - 100) % 3 == 0) {
+                    String command = worldCommands.get((since - 100) / 3).strip();
+                    if (!command.isEmpty()) {
+                        mc.player.connection.sendCommand(command);
+                    }
                 }
-            } else if (since == 100 + worldCommands.size() + 500) {
+            } else if (since == 100 + steps + 500) {
                 Files.writeString(mc.gameDirectory.toPath().resolve("tessera-world-ready"), "ready");
-            } else if (since == 100 + worldCommands.size() + 620) {
+            } else if (since == 100 + steps + 620) {
                 mc.stop();
             }
         } catch (IOException | RuntimeException e) {
