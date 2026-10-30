@@ -37,7 +37,7 @@ Celeris is resolved from your local Maven repository (if you `publishToMavenLoca
 The JNI library is built from `native/` (CMake) against the vendored bc7enc_rdo sources:
 
 ```bash
-native/vendor/fetch.sh   # vendor the pinned upstream sources (bc7enc_rdo and astc-encoder)
+bichal vendor .   # fetch the pinned upstream sources ([vendor.*]: bc7enc_rdo and astc-encoder)
 
 # Windows x86_64 (Visual Studio + CMake)
 cmake -S native -B build-native/windows -A x64
@@ -74,8 +74,8 @@ native/
   CMakeLists.txt        # JNI library build
   build-linux.sh        # Linux x86_64 + aarch64 build in Docker
   astc_bridge.*         # the astc-encoder glue
-  vendor/bc7enc_rdo/    # tessera_bridge.cpp + fetch.sh (upstream sources are fetched, not committed)
-  vendor/astcenc/       # fetch.sh for ARM's astc-encoder
+  vendor/bc7enc_rdo/    # tessera_bridge.cpp (upstream sources are fetched, not committed)
+  vendor/astcenc/       # ARM's astc-encoder (fetched)
 src/main/java/net/bichal/mods/tessera/
   api/                  # AtlasCompressEvent
   atlas/                # Atlas assembly, mip chains, compression/upload driver

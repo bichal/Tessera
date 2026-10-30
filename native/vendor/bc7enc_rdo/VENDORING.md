@@ -6,8 +6,8 @@ License: dual MIT / public-domain-equivalent, per upstream `LICENSE`. Compatible
 
 ## Why vendored, not a Git submodule
 
-`native/CMakeLists.txt` compiles these sources directly into `tessera_bridge`. `fetch.sh` pins the
-exact upstream commit and applies two small patches (see below) without adding submodule
+`native/CMakeLists.txt` compiles these sources directly into `tessera_bridge`. `bichal vendor` fetches the
+exact upstream commit (`[vendor.bc7enc_rdo]` in `mod.stonecutter.properties.toml`) and applies two small patches (see below) without adding submodule
 management to `git clone`.
 
 ## What's actually needed
@@ -29,14 +29,15 @@ Explicitly NOT vendored: `lodepng.*` (PNG file I/O, unused — Tessera passes ra
 `test.cpp` (the upstream CLI's own `main()`, would conflict with `tessera_bridge`'s build),
 `bc7e_ispc.h` (ISPC backend; `SUPPORT_BC7E` defaults to `0` upstream, so it's never referenced).
 
-## Patches applied by fetch.sh
+## Patches (`native/vendor/patches/bc7enc_rdo.patch`)
 
 - `ert.h`: adds the missing `#include <cstdint>`.
 - `utils.cpp`: removes the lodepng/miniz includes and stubs the PNG/deflate helpers (unused).
 
 ## Populating this directory
 
-Run `./fetch.sh` from this directory before the first native build (CI runs it before every native
-build: `ci_prepare` under `[natives.tessera_bridge]` in `mod.stonecutter.properties.toml`). It checks out the pinned commit into a temp
-directory and copies only the files listed above. Only `VENDORING.md`, `fetch.sh`, `LICENSE` and
+Run `bichal vendor .` (bichal-build-logic's tool) from the repository root before the first native
+build; CI runs it before every native build. It fetches the pinned commit, copies only the files
+listed in `[vendor.bc7enc_rdo]`, applies the patch and leaves a `.vendored.json` marker, so a
+second run is a no-op until the pin or the patch changes. Only `VENDORING.md`, `LICENSE` and
 `tessera_bridge.cpp` are tracked in git; the rest is regenerated and git-ignored.
