@@ -119,9 +119,16 @@ public final class Config {
     private Config() {
     }
 
-    public record ReloadSensitiveSnapshot(String cacheDirectory, int compressionQuality) {
+    /**
+     * The settings that only take effect when atlases are compressed again (a resource reload):
+     * everything but the debug overlay. A change of any of them reloads resources.
+     */
+    public record ReloadSensitiveSnapshot(String cacheDirectory, int compressionQuality, boolean disableNativeCompression,
+                                          boolean compressAnimatedAtlases, int dedupSimilarityThreshold, int vramBudgetTargetMb) {
         public static ReloadSensitiveSnapshot capture() {
-            return new ReloadSensitiveSnapshot(get(CACHE_DIRECTORY), get(COMPRESSION_QUALITY));
+            return new ReloadSensitiveSnapshot(get(CACHE_DIRECTORY), get(COMPRESSION_QUALITY),
+                    get(DISABLE_NATIVE_COMPRESSION), get(COMPRESS_ANIMATED_ATLASES),
+                    get(DEDUP_SIMILARITY_THRESHOLD), get(VRAM_BUDGET_TARGET_MB));
         }
     }
 

@@ -9,6 +9,7 @@ import net.bichal.mods.tessera.compress.CompressedAnimationUploader.EncodeStats;
 import net.bichal.mods.tessera.compress.Bc7GpuSupport;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 //? if neoforge {
@@ -74,9 +75,36 @@ public final class TesseraSelfTest {
 
     public static void register() {
         //? if fabric {
-        /*net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> tick());
+        /*net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(
+                client -> { if (SCREEN_PREVIEW) screenPreviewTick(); else tick(); });
         *///?} else
         NeoForge.EVENT_BUS.addListener(ClientTickEvent.Post.class, e -> tick());
+    }
+
+    /** Fabric: -Dtessera.selftest.screen=true opens the settings screen, marks the game directory, then closes it. */
+    private static final boolean SCREEN_PREVIEW = Boolean.getBoolean("tessera.selftest.screen");
+
+    private static void screenPreviewTick() {
+        //? if fabric {
+        /*ticks++;
+        Minecraft mc = Minecraft.getInstance();
+        try {
+            if (ticks == 400) {
+                mc.setScreen(new net.bichal.mods.tessera.client.TesseraConfigScreen(mc.screen));
+            } else if (ticks == 460) {
+                Files.writeString(mc.gameDirectory.toPath().resolve("tessera-screen-open"), "open");
+            } else if (ticks == 900) {
+                Screen open = mc.screen;
+                open.onClose(); // writes the settings and returns to the previous screen
+                Files.writeString(mc.gameDirectory.toPath().resolve("tessera-screen-closed"), "closed");
+            } else if (ticks == 960) {
+                mc.stop();
+            }
+        } catch (IOException | RuntimeException e) {
+            LOGGER.error("Tessera settings screen preview failed", e);
+            mc.stop();
+        }
+        *///?}
     }
 
     private static void tick() {
