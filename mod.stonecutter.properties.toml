@@ -41,8 +41,29 @@ repo = "bichal/Celeris"
 [natives.tessera_bridge]
 cmake_dir = "native"
 platforms = ["windows-x86_64", "linux-x86_64", "linux-aarch64", "macos-aarch64", "macos-x86_64"]
-ci_prepare = "native/vendor/fetch.sh"
 ci_linux_script = "native/build-linux.sh"
+
+# Sources the bridge compiles but the repository does not carry: `bichal vendor` (and CI, before
+# the native build) fetches them at the pinned commit. bc7enc_rdo loses its PNG and deflate
+# helpers in the patch (native/vendor/patches); astc-encoder is used as published.
+[vendor.bc7enc_rdo]
+git = "https://github.com/richgel999/bc7enc_rdo.git"
+commit = "b9438627eef73a1157e84201b6fa6eb2ffd6d9f0"
+dest = "native/vendor/bc7enc_rdo"
+copy = [
+  "rdo_bc_encoder.h", "rdo_bc_encoder.cpp", "bc7enc.h", "bc7enc.cpp", "ert.h", "ert.cpp",
+  "rgbcx.h", "rgbcx.cpp", "rgbcx_table4.h", "rgbcx_table4_small.h", "utils.h", "utils.cpp",
+  "bc7decomp.h", "bc7decomp.cpp", "bc7decomp_ref.cpp", "dds_defs.h", "LICENSE",
+]
+patches = ["native/vendor/patches/bc7enc_rdo.patch"]
+
+[vendor.astcenc]
+git = "https://github.com/ARM-software/astc-encoder.git"
+commit = "d0f91386350222fcbf6da533c0f7a3f9b5c6b783"
+dest = "native/vendor/astcenc"
+copy = ["Source/astcenc*.cpp", "Source/astcenc*.h"]
+skip = ["astcenccli_*"]
+rename = { "LICENSE.txt" = "LICENSE" }
 
 # Third-party code inside the jar (ids from bichal-build-logic/legal/catalog.toml).
 [legal.third_party]

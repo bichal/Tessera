@@ -29,10 +29,8 @@ foreach(required rdo_bc_encoder.h bc7enc.h ert.h rgbcx.h utils.h bc7decomp.h dds
     if(NOT EXISTS ${VENDOR_DIR}/${required})
         message(FATAL_ERROR
             "Vendor sources missing or incomplete in ${VENDOR_DIR} (missing "
-            "${required}). This build expects vendor/bc7enc_rdo/fetch.sh to "
-            "have already vendored bc7enc_rdo (with patches) into that "
-            "directory. Run:\n    cd ${VENDOR_DIR} && ./fetch.sh\nand re-run "
-            "the build.")
+            "${required}). This build expects the sources `bichal vendor` fetches ([vendor.*] in "
+            "mod.stonecutter.properties.toml). Run:\n    bichal vendor .\nand re-run the build.")
     endif()
 endforeach()
 
@@ -41,7 +39,7 @@ endforeach()
 set(ASTC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/astcenc)
 if(NOT EXISTS ${ASTC_DIR}/astcenc.h)
     message(FATAL_ERROR
-        "astc-encoder sources missing in ${ASTC_DIR}. Run:\n    native/vendor/fetch.sh\nand re-run the build.")
+        "astc-encoder sources missing in ${ASTC_DIR}. Run:\n    bichal vendor .\nand re-run the build.")
 endif()
 file(GLOB ASTC_SOURCES ${ASTC_DIR}/astcenc_*.cpp)
 add_library(astcenc STATIC ${ASTC_SOURCES})

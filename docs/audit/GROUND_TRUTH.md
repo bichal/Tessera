@@ -48,7 +48,7 @@ Tessera/
 │   ├── selftest/   TesseraSelfTest (headless client check of compressed atlases)
 │   └── vram/, keybinds/, datagen/, util/
 ├── src/test/java/  AtlasPolicyTest (one test class)
-├── native/         CMakeLists.txt, build-linux.sh (Docker), vendor/bc7enc_rdo/ (tessera_bridge.cpp + fetch.sh;
+├── native/         CMakeLists.txt, build-linux.sh (Docker), vendor/bc7enc_rdo/ (tessera_bridge.cpp;
 │                   upstream sources are fetched, not committed)
 ├── natives/        committed prebuilt libtessera_bridge for linux-x86_64, linux-aarch64, windows-x86_64
 └── .github/workflows/  ci.yml (bichal-build-logic mod-ci.yml), descriptions.yml
@@ -70,7 +70,7 @@ Embeddium classes. The only targets are vanilla texture classes, which those mod
 
 ## 4. Native code (real)
 
-`tessera_bridge`: C++17 JNI wrapper over `bc7enc_rdo` (vendored by `fetch.sh` at a pinned commit, with patches), hidden
+`tessera_bridge`: C++17 JNI wrapper over `bc7enc_rdo` (vendored by `bichal vendor` at a pinned commit, with patches), hidden
 visibility, statically linked libstdc++ on Linux, `-pthread`. Built for Windows x86_64 (MSVC), Linux x86_64 and
 Linux AArch64 (glibc 2.17+, Docker). No macOS build: macOS's OpenGL lacks BC7 (`GL_ARB_texture_compression_bptc`).
 Loaded over JNI only (no FFM, no launch flag). If loading fails, `TesseraRuntime` catches `Throwable`, logs the reason
@@ -85,7 +85,7 @@ and uses `SoftwareCompressionBackend`.
 | Lang files | `./gradlew :1.21.1:runData` |
 | Headless self-test | `./gradlew :1.21.1:selftest` (client under software GL, checks every compressed atlas against its sprites, writes `tessera-selftest.txt`) |
 | Release jars | `./gradlew buildAndCollect` |
-| Native (Linux) | `cd native/vendor/bc7enc_rdo && ./fetch.sh && cd ../../.. && JAVA_HOME=<jdk> ./native/build-linux.sh` |
+| Native (Linux) | `bichal vendor . && JAVA_HOME=<jdk> ./native/build-linux.sh` |
 
 CI (`ci.yml` → bichal-build-logic `mod-ci.yml`): `build buildAndCollect selftest` on every push/PR; `bichal compat`
 runs the self-test in a real client for every `game_versions` entry; `v*` tags publish to GitHub, Modrinth and
