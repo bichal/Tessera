@@ -1,5 +1,6 @@
 package net.bichal.mods.tessera.compress.backend;
 
+import net.bichal.mods.tessera.compress.software.SoftwareAstcEncoder;
 import net.bichal.mods.tessera.compress.software.SoftwareBc1Encoder;
 import net.bichal.mods.tessera.compress.software.SoftwareBc7Encoder;
 
@@ -28,6 +29,17 @@ final class SoftwareCompressionBackend implements CompressionBackend {
     @Override
     public ByteBuffer compressBc1(ByteBuffer rgba8Direct, int width, int height, int qualityPreset) {
         return SoftwareBc1Encoder.encode(rgba8Direct, width, height);
+    }
+
+    @Override
+    public ByteBuffer compressAstc(ByteBuffer rgba8Direct, int width, int height, int blockWidth, int blockHeight,
+                                   int qualityPreset, boolean guardQuality) {
+        return SoftwareAstcEncoder.encode(rgba8Direct, width, height, blockWidth, blockHeight, guardQuality);
+    }
+
+    @Override
+    public boolean supportsAstc() {
+        return true;
     }
 
     @Override

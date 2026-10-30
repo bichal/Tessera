@@ -2,11 +2,10 @@ package net.bichal.mods.tessera.mixin;
 
 import net.bichal.mods.tessera.api.AtlasCompressEvent;
 import net.bichal.mods.tessera.atlas.AtlasCompressionDriver;
+import net.bichal.mods.tessera.atlas.AtlasFormats;
 import net.bichal.mods.tessera.atlas.AtlasPolicy;
 import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compat.TesseraCompat;
-import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
-import net.bichal.mods.tessera.compress.Bc7GpuSupport;
 import net.bichal.mods.tessera.compress.CompressedAtlases;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.bichal.mods.tessera.config.Config;
@@ -114,24 +113,21 @@ public abstract class TextureAtlasUploadMixin {
         }
         ByteBuffer assembled = atlasPixels.pixels();
 
-        // Default format by content: BC1 when every texel is opaque, BC7 otherwise (keeps alpha).
-        // Listeners may cancel or pick the other one.
-        AtlasCache.CompressedFormat defaultFormat = atlasPixels.opaque() && Bc1TextureFormatSupport.isSupported()
-                ? AtlasCache.CompressedFormat.BC1
-                : AtlasCache.CompressedFormat.BC7;
+        // Default format by content and driver: BC1 / ASTC 6x6 when every texel is opaque, BC7 / ASTC 4x4
+        // otherwise (keeps alpha). Listeners may cancel or pick another one.
+        CompressionPipeline.Target chosen = AtlasFormats.choose(atlasPixels.opaque());
+        if (chosen == null) {
+            LOGGER.info("Atlas {}: this driver takes none of BC1, BC7, ASTC; kept as RGBA8888.", atlasName);
+            return;
+        }
         AtlasCompressEvent.Pre pre = AtlasCompressEvent.post(
-                new AtlasCompressEvent.Pre(atlasLocation, defaultFormat));
+                new AtlasCompressEvent.Pre(atlasLocation, chosen.cacheFormat()));
         if (pre.isCanceled()) {
             return;
         }
         AtlasCache.CompressedFormat format = pre.getTargetFormat();
-        CompressionPipeline.Target target = format == AtlasCache.CompressedFormat.BC1
-                ? CompressionPipeline.Target.BC1
-                : CompressionPipeline.Target.BC7;
-        boolean formatSupported = target == CompressionPipeline.Target.BC1
-                ? Bc1TextureFormatSupport.isSupported()
-                : Bc7GpuSupport.isSupported();
-        if (!formatSupported) {
+        CompressionPipeline.Target target = CompressionPipeline.Target.of(format);
+        if (!target.gpuSupported()) {
             return;
         }
 

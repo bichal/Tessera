@@ -24,6 +24,12 @@ native/vendor/bc7enc_rdo/*
 !native/vendor/bc7enc_rdo/fetch.sh
 !native/vendor/bc7enc_rdo/VENDORING.md
 
+# VENDOR (astc-encoder)
+native/vendor/astcenc/*
+!native/vendor/astcenc/LICENSE
+!native/vendor/astcenc/fetch.sh
+!native/vendor/astcenc/VENDORING.md
+
 # Native binaries are never committed: CI builds them per platform
 # (bichal-build-logic mod-ci.yml, [natives.tessera_bridge]); see README, "Native encoder".
 *.so

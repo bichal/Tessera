@@ -4,6 +4,9 @@ import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compat.ModCompat;
 import net.bichal.mods.tessera.compat.TesseraCompat;
 import net.bichal.mods.tessera.compress.CompressedAtlases;
+import net.bichal.mods.tessera.atlas.AtlasFormats;
+import net.bichal.mods.tessera.compress.AstcGpuSupport;
+import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
 import net.bichal.mods.tessera.compress.Bc7GpuSupport;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.minecraft.client.Minecraft;
@@ -58,7 +61,6 @@ public final class TesseraSelfTest {
     private static final double MIN_STATIC_PSNR = 28.0;
     // BC1 stores 4 bits per texel (BC7: 8): detailed opaque atlases such as paintings land near 25 dB.
     private static final double MIN_STATIC_PSNR_BC1 = 24.0;
-    private static final int GL_COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
     private static final int GL_COMPRESSED_RGB_S3TC_DXT1 = 0x83F0, GL_COMPRESSED_RGBA_S3TC_DXT1 = 0x83F1;
 
     // Compressed atlases come from CompressedAtlases, not AtlasCompressEvent.Post:
@@ -214,11 +216,13 @@ public final class TesseraSelfTest {
     }
 
     private static boolean check(List<String> out) {
-        if (!Bc7GpuSupport.isSupported()) {
-            out.add("the GL driver has no BC7 (" + GL11.glGetString(GL11.GL_RENDERER) + ")");
+        out.add("renderer " + GL11.glGetString(GL11.GL_RENDERER) + ", " + GL11.glGetString(GL11.GL_VERSION));
+        out.add("GPU formats: BC1 " + Bc1TextureFormatSupport.isSupported() + ", BC7 " + Bc7GpuSupport.isSupported()
+                + ", ASTC " + AstcGpuSupport.isSupported());
+        if (AtlasFormats.choose(false) == null && AtlasFormats.choose(true) == null) {
+            out.add("the GL driver takes none of BC1, BC7 and ASTC");
             return false;
         }
-        out.add("renderer " + GL11.glGetString(GL11.GL_RENDERER) + ", " + GL11.glGetString(GL11.GL_VERSION));
         Map<TextureAtlas, CompressionPipeline.Target> compressed = CompressedAtlases.all();
         if (compressed.isEmpty()) {
             out.add("no atlas was compressed within " + GIVE_UP_TICKS + " ticks");
@@ -272,7 +276,7 @@ public final class TesseraSelfTest {
             int format = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, level, GL11.GL_TEXTURE_INTERNAL_FORMAT);
             boolean expected = expectedFormat == CompressionPipeline.Target.BC1
                     ? format == GL_COMPRESSED_RGB_S3TC_DXT1 || format == GL_COMPRESSED_RGBA_S3TC_DXT1
-                    : format == GL_COMPRESSED_RGBA_BPTC_UNORM;
+                    : format == expectedFormat.glFormat();
             if (!expected || w != Math.max(1, width >> level) || h != Math.max(1, height >> level)) {
                 out.add(String.format("  %s level %d: %dx%d format 0x%X (expected %s %dx%d)", name, level, w, h, format,
                         expectedFormat, Math.max(1, width >> level), Math.max(1, height >> level)));
@@ -289,7 +293,10 @@ public final class TesseraSelfTest {
                 compare(pixels, width, sprite, 0, staticError);
             }
             double staticPsnr = staticError.psnr();
-            double minStatic = expectedFormat == CompressionPipeline.Target.BC1 ? MIN_STATIC_PSNR_BC1 : MIN_STATIC_PSNR;
+            // BC1 and ASTC 6x6 store 4 bits per texel or less, BC7 and ASTC 4x4 eight.
+            boolean smallFormat = expectedFormat == CompressionPipeline.Target.BC1
+                    || expectedFormat == CompressionPipeline.Target.ASTC_6X6;
+            double minStatic = smallFormat ? MIN_STATIC_PSNR_BC1 : MIN_STATIC_PSNR;
             boolean staticOk = staticPsnr >= minStatic;
             out.add(String.format("%s %s %dx%d, %d levels (max %d): sprites PSNR %.1f dB over %d texels%s",
                     name, expectedFormat, width, height, levels, maxLevel, staticPsnr, staticError.count,
