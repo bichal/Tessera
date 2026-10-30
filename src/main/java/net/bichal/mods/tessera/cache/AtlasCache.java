@@ -14,8 +14,11 @@ import java.util.Optional;
 
 public final class AtlasCache {
 
-    private static final byte[] MAGIC = {'T', 'S', 'R', '2'};
-    private static final int HEADER_BYTES = MAGIC.length + Integer.BYTES * 5;
+    // TSR3 (TSR2 stored the blocks as they were): the payload may be compressed with CacheCodec.
+    private static final byte[] MAGIC = {'T', 'S', 'R', '3'};
+    private static final int HEADER_BYTES = MAGIC.length + Integer.BYTES * 7;
+    private static final int PAYLOAD_RAW = 0;
+    private static final int PAYLOAD_CELERIS = 1;
     private final Path cacheDirectory;
 
     public AtlasCache(Path cacheDirectory) {
@@ -81,15 +84,19 @@ public final class AtlasCache {
             int height = header.getInt();
             int qualityPreset = header.getInt();
             int payloadLength = header.getInt();
+            int storedLength = header.getInt();
+            int encoding = header.getInt();
 
             // Corrupt header guard: negative/oversized lengths would otherwise throw
             // IllegalArgumentException from allocateDirect, or allocate garbage sizes.
-            if (payloadLength <= 0 || width <= 0 || height <= 0
-                    || channel.size() < (long) HEADER_BYTES + payloadLength) {
+            if (payloadLength <= 0 || storedLength <= 0 || width <= 0 || height <= 0
+                    || (encoding != PAYLOAD_RAW && encoding != PAYLOAD_CELERIS)
+                    || (encoding == PAYLOAD_RAW && storedLength != payloadLength)
+                    || channel.size() < (long) HEADER_BYTES + storedLength) {
                 return Optional.empty();
             }
 
-            ByteBuffer payload = ByteBuffer.allocateDirect(payloadLength).order(ByteOrder.LITTLE_ENDIAN);
+            ByteBuffer payload = ByteBuffer.allocateDirect(storedLength).order(ByteOrder.LITTLE_ENDIAN);
             while (payload.hasRemaining()) {
                 if (channel.read(payload) < 0) {
                     // Truncated mid-read (e.g. concurrent external
@@ -100,6 +107,13 @@ public final class AtlasCache {
                 }
             }
             payload.flip();
+
+            if (encoding == PAYLOAD_CELERIS) {
+                payload = CacheCodec.decompress(payload, payloadLength);
+                if (payload == null) {
+                    return Optional.empty(); // does not decode: recompress and overwrite
+                }
+            }
 
             touch(file); // refresh LRU position for prune()
             return Optional.of(new CachedAtlas(width, height, qualityPreset, payload));
@@ -112,6 +126,10 @@ public final class AtlasCache {
         Files.createDirectories(cacheDirectory);
 
         int payloadLength = compressedBlocks.remaining();
+        // Block data is mostly runs of identical or empty blocks: store it compressed when that is smaller.
+        ByteBuffer packed = CacheCodec.compress(compressedBlocks);
+        ByteBuffer stored = packed != null ? packed : compressedBlocks.duplicate();
+        int storedLength = stored.remaining();
         ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN);
         header.put(MAGIC);
         header.putInt(format.ordinal());
@@ -119,12 +137,14 @@ public final class AtlasCache {
         header.putInt(height);
         header.putInt(qualityPreset);
         header.putInt(payloadLength);
+        header.putInt(storedLength);
+        header.putInt(packed != null ? PAYLOAD_CELERIS : PAYLOAD_RAW);
         header.flip();
 
         // Gathering write: header + payload straight from the (direct) block buffer,
         // instead of first copying the whole payload into a heap staging buffer.
-        ByteBuffer[] parts = {header, compressedBlocks.duplicate()};
-        long total = (long) HEADER_BYTES + payloadLength;
+        ByteBuffer[] parts = {header, stored};
+        long total = (long) HEADER_BYTES + storedLength;
 
         Path tempFile = Files.createTempFile(cacheDirectory, hashHex, ".tmp");
         try {
