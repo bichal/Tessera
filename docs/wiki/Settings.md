@@ -11,6 +11,6 @@ NeoForge: the in-game mod settings, or `config/tessera-client.toml`. Fabric: `co
 | `vramBudgetTargetMb` | `2048` | Budget used when the GPU's VRAM can't be detected |
 | `cacheDirectory` | `tessera-cache` | Disk cache folder, relative to the game directory |
 
-The disk cache is capped at 512 MB; change it with `-Dtessera.cache.maxMB=<MB>`.
+The disk cache is capped at 512 MB (of compressed data on disk); change it with `-Dtessera.cache.maxMB=<MB>`.
 
 [Back to Home](Home.md)
