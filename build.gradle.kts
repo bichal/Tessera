@@ -24,6 +24,8 @@ val generatedResources: File = rootProject.file("src/generated/resources")
 // -PselftestMods=<jar>[,<jar>] adds mods to a Fabric run (e.g. a stand-in for Kerria).
 val selftestDefaultPolicy = (findProperty("selftestDefaultPolicy") as String?) == "true"
 val selftestMods = findProperty("selftestMods") as String?
+// -PselftestWorld=<commands file> (1.21.1): builds a showcase world and waits for a screenshot (see TesseraSelfTest).
+val selftestWorldCommands = findProperty("selftestWorld") as String?
 val selftestDir = rootProject.file("versions/${modProps.currentVersion}/run-selftest")
 
 pluginManager.withPlugin("net.neoforged.moddev") { configure<NeoForgeExtension> {
@@ -50,6 +52,7 @@ pluginManager.withPlugin("net.neoforged.moddev") { configure<NeoForgeExtension> 
             systemProperty("tessera.selftest", "true")
             // Unless told otherwise the self-test checks animations on compressed atlases (the opt-in BC path).
             if (!selftestDefaultPolicy) systemProperty("tessera.compressAnimated", "true")
+            if (selftestWorldCommands != null) systemProperty("tessera.selftest.world", selftestWorldCommands)
             systemProperty("tessera.selftest.version", modProps.currentVersion)
             jvmArgument("-Xmx2G")
         }
@@ -95,6 +98,7 @@ if (modProps.isFabric) {
                 client()
                 vmArg("-Dtessera.selftest=true")
                 if (!selftestDefaultPolicy) vmArg("-Dtessera.compressAnimated=true")
+                if (selftestWorldCommands != null) vmArg("-Dtessera.selftest.world=$selftestWorldCommands")
                 if ((findProperty("selftestScreen") as String?) == "true") vmArg("-Dtessera.selftest.screen=true")
                 if (selftestMods != null) vmArg("-Dfabric.addMods=$selftestMods")
                 vmArg("-Dtessera.selftest.version=${modProps.currentVersion}")
