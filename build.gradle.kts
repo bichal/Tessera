@@ -1,15 +1,18 @@
 @file:Suppress("AvoidDuplicateDependencies")
 
 import net.bichal.gradle.BichalModExtension
+import net.neoforged.moddevgradle.dsl.NeoForgeExtension
 
+// bichal.mod: bichal.neoforge-mod on the NeoForge nodes ("1.21.1"),
+// bichal.fabric-mod on the Fabric ones ("1.21.1-fabric").
 plugins {
-    id("bichal.neoforge-mod")
+    id("bichal.mod")
     `maven-publish`
     idea
 }
 
-// Celeris (dependency and Maven repositories), natives, neoforge.mods.toml
-// expansion, legal files and buildAndCollect come from bichal.neoforge-mod:
+// Celeris (dependency and Maven repositories), natives, neoforge.mods.toml /
+// fabric.mod.json expansion, legal files and buildAndCollect come from bichal.mod:
 // [depends_on.celeris], [natives.tessera_bridge] and [legal] in the TOML.
 
 val modProps = extensions.getByType(BichalModExtension::class.java).props
@@ -18,7 +21,7 @@ val mainSourceSet = sourceSets.main.get()
 val generatedResources: File = rootProject.file("src/generated/resources")
 val selftestDir = rootProject.file("versions/${modProps.currentVersion}/run-selftest")
 
-neoForge {
+pluginManager.withPlugin("net.neoforged.moddev") { configure<NeoForgeExtension> {
     runs {
         all {
             val runDir = rootProject.file("versions/${modProps.currentVersion}/run")
@@ -40,6 +43,8 @@ neoForge {
             client()
             gameDirectory = selftestDir
             systemProperty("tessera.selftest", "true")
+            // The self-test checks animations on compressed atlases (the opt-in BC path).
+            systemProperty("tessera.compressAnimated", "true")
             systemProperty("tessera.selftest.version", modProps.currentVersion)
             jvmArgument("-Xmx2G")
         }
@@ -57,6 +62,23 @@ neoForge {
             )
         }
     }
+} }
+
+// NeoForge makes some SpriteContents members public; Fabric widens them. 1.21.x is
+// obfuscated (access widener namespace "named"), 26.x is not ("official"); the right file
+// ships in the jar as tessera.accesswidener, the other is left out.
+val accessWidener = if (modProps.mcVersion.startsWith("1.")) "tessera-named.accesswidener" else "tessera-official.accesswidener"
+if (modProps.isFabric) {
+    extensions.configure<net.fabricmc.loom.api.LoomGradleExtensionAPI>("loom") {
+        accessWidenerPath.set(rootProject.file("src/main/resources/$accessWidener"))
+    }
+}
+tasks.named<ProcessResources>("processResources") {
+    // Locals only: the action is stored in the configuration cache and must not capture this script.
+    val shipped = if (modProps.isFabric) accessWidener else ""
+    filesMatching("tessera-*.accesswidener") {
+        if (name == shipped) name = "tessera.accesswidener" else exclude()
+    }
 }
 
 sourceSets.main {
@@ -67,40 +89,43 @@ sourceSets.main {
     }
 }
 
-// A fresh game directory for every check: no saved options (accessibility
-// onboarding off, quiet), no stale report.
-val prepareSelftest = tasks.register("prepareSelftest") {
-    val dir = selftestDir
-    doLast {
-        dir.deleteRecursively()
-        dir.mkdirs()
-        dir.resolve("options.txt").writeText(
-            listOf("onboardAccessibility:false", "narrator:0", "soundCategory_master:0.0", "renderDistance:2")
-                .joinToString("\n", postfix = "\n")
-        )
-    }
-}
-
-tasks.matching { it.name == "runSelftest" }.configureEach {
-    dependsOn(prepareSelftest)
-    // One game client at a time: they are heavy under software OpenGL.
-    val earlier = rootProject.childProjects.keys.filter { it < project.name }.sorted()
-    mustRunAfter(earlier.map { ":$it:runSelftest" })
-}
-
-tasks.register("selftest") {
-    group = "verification"
-    description = "Starts a headless client and checks the compressed atlases against their sprites (TesseraSelfTest)."
-    dependsOn("runSelftest")
-    val report = selftestDir.resolve("tessera-selftest.txt")
-    doLast {
-        if (!report.isFile) {
-            throw GradleException("Tessera self-test: no report in $report (the client stopped before the check)")
+// The headless client self-test runs on the NeoForge nodes only.
+if (!modProps.isFabric) {
+    // A fresh game directory for every check: no saved options (accessibility
+    // onboarding off, quiet), no stale report.
+    val prepareSelftest = tasks.register("prepareSelftest") {
+        val dir = selftestDir
+        doLast {
+            dir.deleteRecursively()
+            dir.mkdirs()
+            dir.resolve("options.txt").writeText(
+                listOf("onboardAccessibility:false", "narrator:0", "soundCategory_master:0.0", "renderDistance:2")
+                    .joinToString("\n", postfix = "\n")
+            )
         }
-        val text = report.readText()
-        println(text)
-        if (!text.lineSequence().first().endsWith("PASS")) {
-            throw GradleException("Tessera self-test failed: see $report")
+    }
+
+    tasks.matching { it.name == "runSelftest" }.configureEach {
+        dependsOn(prepareSelftest)
+        // One game client at a time: they are heavy under software OpenGL.
+        val earlier = rootProject.childProjects.keys.filter { it < project.name }.sorted()
+        mustRunAfter(earlier.map { ":$it:runSelftest" })
+    }
+
+    tasks.register("selftest") {
+        group = "verification"
+        description = "Starts a headless client and checks the compressed atlases against their sprites (TesseraSelfTest)."
+        dependsOn("runSelftest")
+        val report = selftestDir.resolve("tessera-selftest.txt")
+        doLast {
+            if (!report.isFile) {
+                throw GradleException("Tessera self-test: no report in $report (the client stopped before the check)")
+            }
+            val text = report.readText()
+            println(text)
+            if (!text.lineSequence().first().endsWith("PASS")) {
+                throw GradleException("Tessera self-test failed: see $report")
+            }
         }
     }
 }

@@ -1,3 +1,4 @@
+//? if neoforge {
 package net.bichal.mods.tessera.datagen;
 
 import net.bichal.mods.tessera.datagen.lang.EnUsLanguageProvider;
@@ -37,3 +38,4 @@ public final class DataGenerators {
     }
     //?}
 }
+//?}

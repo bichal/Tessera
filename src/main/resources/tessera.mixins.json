@@ -5,6 +5,8 @@
 	"compatibilityLevel": "${java}",
 	"refmap": "tessera.refmap.json",
 	"client": [
+		"DebugScreenEntriesFabricMixin",
+		"DebugScreenFabricMixin",
 		"KeyboardHandlerAccessor",
 		"SpriteContentsUploadMixin",
 		"TextureAtlasAccessor",

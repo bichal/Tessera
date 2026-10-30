@@ -76,12 +76,15 @@ display = true
 [stonecutter]
 profile = "bichal"
 vcs_version = "1.21.1"
+# Every version is built for NeoForge ("1.21.1") and Fabric ("1.21.1-fabric");
+# loader-specific code reads //? if fabric { ... } (Stonecutter constants).
+loaders = ["neoforge", "fabric"]
 
 # bichal compat: every version a build claims (game_versions) runs the same
 # self-test in a real game client of that version before it is claimed.
 [compat]
 side = "client"
-jvm_args = ["-Dtessera.selftest=true", "-Xmx2G"]
+jvm_args = ["-Dtessera.selftest=true", "-Dtessera.compressAnimated=true", "-Xmx2G"]
 report = "tessera-selftest.txt"
 timeout_minutes = 25
 client_options = ["onboardAccessibility:false", "narrator:0", "soundCategory_master:0.0", "renderDistance:2"]

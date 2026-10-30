@@ -1,3 +1,4 @@
+//? if neoforge {
 package net.bichal.mods.tessera.datagen.lang;
 
 import net.bichal.mods.tessera.Tessera;
@@ -20,3 +21,4 @@ public abstract class LanguageProvider extends net.neoforged.neoforge.common.dat
         add("tessera.configuration." + key + ".tooltip", tooltip);
     }
 }
+//?}

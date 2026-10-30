@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "${mod_id}",
+  "version": "${mod_version}",
+  "name": "${mod_name}",
+  "description": "${mod_description}",
+  "authors": ["${mod_authors}"],
+  "contact": {
+    "sources": "https://github.com/bichal/Tessera",
+    "issues": "${mod_issues}"
+  },
+  "license": "${mod_license}",
+  "icon": "${mod_banner}",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["net.bichal.mods.tessera.TesseraFabric"]
+  },
+  "accessWidener": "tessera.accesswidener",
+  "mixins": ["${mod_id}.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.16",
+    "minecraft": "${fabric_minecraft_version_range}",
+    "java": ">=21",
+    "fabric-api": "*",
+    "celeris": "${celeris_fabric_version_range}"
+  }
+}
