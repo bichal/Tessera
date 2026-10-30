@@ -9,7 +9,7 @@
   thread; only the GPU upload happens on the render thread.
 - Fully transparent texels are colour-bled before encoding, so cutout and GUI textures get no fringes.
 - A content-addressed disk cache (`tessera-cache/`, size-capped, least-recently-used eviction) skips re-encoding
-  unchanged atlases.
+  unchanged atlases. Entries are stored compressed with Celeris (zstd), typically at about a tenth of their size.
 - With `compressAnimatedAtlases` on, animated sprites are written as BC blocks with `glCompressedTexSubImage2D`: keyframes are encoded once and cached,
   interpolated frames on the fly; at mip levels smaller than a 4x4 block only the affected blocks are patched.
 - The native encoder ([bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo)) is loaded over JNI (no launch flags),
