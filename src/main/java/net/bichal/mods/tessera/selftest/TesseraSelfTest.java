@@ -160,14 +160,14 @@ public final class TesseraSelfTest {
                 mc.setScreen(settingsScreen);
             } else if (ticks == 460) {
                 Files.writeString(game.resolve("tessera-screen-open"), "open");
-            } else if (ticks == 520) {
+            } else if (ticks == 700) {
                 mc.setScreen(settingsScreen.sectionScreen(0));
-            } else if (ticks == 580) {
+            } else if (ticks == 760) {
                 Files.writeString(game.resolve("tessera-screen-section"), "section");
-            } else if (ticks == 900) {
+            } else if (ticks == 1000) {
                 settingsScreen.onClose(); // writes the settings and returns to the previous screen
                 Files.writeString(game.resolve("tessera-screen-closed"), "closed");
-            } else if (ticks == 960) {
+            } else if (ticks == 1060) {
                 mc.stop();
             }
         } catch (IOException | RuntimeException e) {
