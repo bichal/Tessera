@@ -74,6 +74,19 @@ pluginManager.withPlugin("net.neoforged.moddev") { configure<NeoForgeExtension> 
 // ships in the jar as tessera.accesswidener, the other is left out.
 val accessWidener = if (modProps.mcVersion.startsWith("1.")) "tessera-named.accesswidener" else "tessera-official.accesswidener"
 if (modProps.isFabric) {
+    // The Mod Menu entrypoint (TesseraModMenu) compiles against Mod Menu's API only; Mod Menu is
+    // neither bundled nor required (it calls the entrypoint when installed).
+    repositories {
+        maven("https://maven.terraformersmc.com/releases/") {
+            name = "Terraformers"
+            content { includeGroup("com.terraformersmc") }
+        }
+    }
+    val modMenu = "com.terraformersmc:modmenu:${modProps.req(project, "modmenu_version")}"
+    val unobfuscated = !modProps.mcVersion.startsWith("1.")  // 26.x ships with Mojang names
+    dependencies {
+        add(if (unobfuscated) "compileOnly" else "modCompileOnly", modMenu) { isTransitive = false }
+    }
     extensions.configure<net.fabricmc.loom.api.LoomGradleExtensionAPI>("loom") {
         accessWidenerPath.set(rootProject.file("src/main/resources/$accessWidener"))
         runs {
@@ -82,6 +95,7 @@ if (modProps.isFabric) {
                 client()
                 vmArg("-Dtessera.selftest=true")
                 if (!selftestDefaultPolicy) vmArg("-Dtessera.compressAnimated=true")
+                if ((findProperty("selftestScreen") as String?) == "true") vmArg("-Dtessera.selftest.screen=true")
                 if (selftestMods != null) vmArg("-Dfabric.addMods=$selftestMods")
                 vmArg("-Dtessera.selftest.version=${modProps.currentVersion}")
                 vmArg("-Xmx2G")

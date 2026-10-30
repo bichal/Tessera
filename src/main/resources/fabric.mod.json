@@ -13,7 +13,8 @@
   "icon": "${mod_banner}",
   "environment": "client",
   "entrypoints": {
-    "client": ["net.bichal.mods.tessera.TesseraFabric"]
+    "client": ["net.bichal.mods.tessera.TesseraFabric"],
+    "modmenu": ["net.bichal.mods.tessera.client.TesseraModMenu"]
   },
   "accessWidener": "tessera.accesswidener",
   "mixins": ["${mod_id}.mixins.json"],
@@ -23,5 +24,8 @@
     "java": ">=21",
     "fabric-api": "*",
     "celeris": "${celeris_fabric_version_range}"
+  },
+  "suggests": {
+    "modmenu": "*"
   }
 }
