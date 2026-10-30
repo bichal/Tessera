@@ -55,6 +55,8 @@ public final class TesseraSelfTest {
     private static final Logger LOGGER = LoggerFactory.getLogger("Tessera/SelfTest");
     private static final int SETTLE_TICKS = 200, GIVE_UP_TICKS = 6000, ANIMATION_TICKS = 60;
     private static final double MIN_STATIC_PSNR = 28.0, MIN_FRAME_PSNR = 20.0;
+    // BC1 stores 4 bits per texel (BC7: 8): detailed opaque atlases such as paintings land near 25 dB.
+    private static final double MIN_STATIC_PSNR_BC1 = 24.0;
     private static final int GL_COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
     private static final int GL_COMPRESSED_RGB_S3TC_DXT1 = 0x83F0, GL_COMPRESSED_RGBA_S3TC_DXT1 = 0x83F1;
 
@@ -199,10 +201,11 @@ public final class TesseraSelfTest {
                 }
             }
             double staticPsnr = staticError.psnr();
-            boolean staticOk = staticPsnr >= MIN_STATIC_PSNR;
+            double minStatic = expectedFormat.toString().contains("BC1") ? MIN_STATIC_PSNR_BC1 : MIN_STATIC_PSNR;
+            boolean staticOk = staticPsnr >= minStatic;
             out.add(String.format("%s %s %dx%d, %d levels (max %d): static sprites PSNR %.1f dB over %d texels%s",
                     name, expectedFormat, width, height, levels, maxLevel, staticPsnr, staticError.count,
-                    staticOk ? "" : " (below " + MIN_STATIC_PSNR + ")"));
+                    staticOk ? "" : " (below " + minStatic + ")"));
             ok &= staticOk;
 
             if (!animated.isEmpty()) {
