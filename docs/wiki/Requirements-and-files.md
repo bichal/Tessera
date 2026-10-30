@@ -2,7 +2,7 @@
 
 | Your setup | Tessera |
 |---|---|
-| **Minecraft** 1.21 to 1.21.11 and 26.1--26.3, NeoForge |  Download the file made for your version |
+| **Minecraft** 1.21 to 1.21.11 and 26.1--26.3, NeoForge or Fabric (Fabric API) |  Download the file made for your version |
 | **Windows** or **Linux** |  Supported |
 | **macOS** |  macOS doesn't support the texture format Tessera needs |
 | **Servers** |  Not needed: it runs on your computer only, and you can join any server with it |

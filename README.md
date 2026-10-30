@@ -3,7 +3,7 @@
 <p align="center">
 <img src="https://img.shields.io/badge/Video_memory-up_to_75_percent_less-1f9d55?style=for-the-badge" alt="Up to 75% less video memory">
 <img src="https://img.shields.io/badge/Minecraft-1.21_--_26.3-3c8527?style=for-the-badge" alt="Minecraft 1.21 to 1.21.11 and 26.1 to 26.3">
-<img src="https://img.shields.io/badge/NeoForge-Client_only-e8710a?style=for-the-badge" alt="NeoForge, client only">
+<img src="https://img.shields.io/badge/NeoForge_and_Fabric-Client_only-e8710a?style=for-the-badge" alt="NeoForge and Fabric, client only">
 </p>
 
 > **Tessera makes Minecraft use less video memory.** It shrinks the game's textures on your graphics card by up to
@@ -30,7 +30,8 @@
 
 ## What it does
 
-- Keeps the game's textures in a smaller format on your graphics card. The game looks the same.
+- Keeps the game's textures in a smaller format on your graphics card. The game looks the same: BC1 for opaque textures, BC7 for textures with transparency.
+- Animated textures stay uncompressed (RGBA8888), as vanilla draws them.
 - Works in the background, so loading textures does not freeze the game.
 - Leaves shaders and other visual mods working.
 - Shows the savings: press F3 to see how much video memory it saves.
@@ -39,7 +40,7 @@ Tessera needs [Celeris](https://github.com/bichal/Celeris) too. Put both in your
 
 ## Requirements
 
-- Minecraft 1.21 to 1.21.11 and 26.1 to 26.3, NeoForge, on your own computer (client only).
+- Minecraft 1.21 to 1.21.11 and 26.1 to 26.3, NeoForge or Fabric (with Fabric API), on your own computer (client only).
 - Windows or Linux. macOS is not supported.
 
 ## Learn more

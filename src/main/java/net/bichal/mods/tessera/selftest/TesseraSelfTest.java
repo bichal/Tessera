@@ -1,6 +1,8 @@
 package net.bichal.mods.tessera.selftest;
 
 import net.bichal.mods.tessera.cache.AtlasCache;
+import net.bichal.mods.tessera.atlas.AtlasPolicy;
+import net.bichal.mods.tessera.compat.ModCompat;
 import net.bichal.mods.tessera.compat.TesseraCompat;
 import net.bichal.mods.tessera.compress.CompressedAnimationUploader;
 import net.bichal.mods.tessera.compress.CompressedAnimationUploader.EncodeStats;
@@ -89,8 +91,12 @@ public final class TesseraSelfTest {
             EncodeStats.reset();
         }
         // The block atlas is the largest and usually the last one compressed.
-        boolean blocksDone = CompressedAnimationUploader.compressedAtlases().keySet().stream()
-                .anyMatch(atlas -> isBlocks(atlas.location().toString()));
+        // With the default policy (animated atlases stay RGBA8888, or Kerria is installed) the
+        // block atlas is never compressed: settle once any other atlas was.
+        boolean blocksDone = AtlasPolicy.mayCompressAnimated()
+                ? CompressedAnimationUploader.compressedAtlases().keySet().stream()
+                        .anyMatch(atlas -> isBlocks(atlas.location().toString()))
+                : !CompressedAnimationUploader.compressedAtlases().isEmpty();
         boolean settled = !overlayShown(mc) && blocksDone && ticks - lastCompressedTick >= SETTLE_TICKS
                 && CompressedAnimationUploader.pendingUpgrades() == 0;
         if (!settled && ticks < GIVE_UP_TICKS) {
@@ -133,9 +139,23 @@ public final class TesseraSelfTest {
             out.add("no atlas was compressed within " + GIVE_UP_TICKS + " ticks");
             return false;
         }
-        boolean ok = compressed.keySet().stream().anyMatch(atlas -> isBlocks(atlas.location().toString()));
-        if (!ok) {
-            out.add("the block atlas was not compressed");
+        boolean animatedMayBeCompressed = AtlasPolicy.mayCompressAnimated();
+        boolean ok;
+        if (animatedMayBeCompressed) {
+            ok = compressed.keySet().stream().anyMatch(atlas -> isBlocks(atlas.location().toString()));
+            if (!ok) {
+                out.add("the block atlas was not compressed");
+            }
+        } else {
+            // Animated textures stay RGBA8888: no compressed atlas may hold an animated sprite.
+            ok = true;
+            for (TextureAtlas atlas : compressed.keySet()) {
+                if (TesseraCompat.textures(atlas).stream().anyMatch(sprite -> TesseraCompat.isAnimated(sprite.contents()))) {
+                    out.add(atlas.location() + " holds animated sprites but was compressed");
+                    ok = false;
+                }
+            }
+            out.add("animated atlases kept as RGBA8888 (Kerria installed: " + ModCompat.isKerriaLoaded() + ")");
         }
         boolean anyAnimated = false;
         for (var entry : compressed.entrySet()) {
@@ -148,7 +168,7 @@ public final class TesseraSelfTest {
         }
         // Some animations are slow (a GUI icon may hold a frame for seconds), but
         // across every compressed atlas some must have moved on.
-        if (anyAnimated && animatedChanged == 0) {
+        if (animatedMayBeCompressed && anyAnimated && animatedChanged == 0) {
             out.add("no animated sprite changed in any compressed atlas");
             ok = false;
         }
