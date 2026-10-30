@@ -1,11 +1,9 @@
 package net.bichal.mods.tessera.selftest;
 
 import net.bichal.mods.tessera.cache.AtlasCache;
-import net.bichal.mods.tessera.atlas.AtlasPolicy;
 import net.bichal.mods.tessera.compat.ModCompat;
 import net.bichal.mods.tessera.compat.TesseraCompat;
-import net.bichal.mods.tessera.compress.CompressedAnimationUploader;
-import net.bichal.mods.tessera.compress.CompressedAnimationUploader.EncodeStats;
+import net.bichal.mods.tessera.compress.CompressedAtlases;
 import net.bichal.mods.tessera.compress.Bc7GpuSupport;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.minecraft.client.Minecraft;
@@ -45,8 +43,8 @@ import java.util.Map;
  *   <li>level 0, decoded by the driver, matches the static sprites (PSNR; small
  *       icon atlases such as mob_effects land near 29-31 dB at the default quality,
  *       a broken or misplaced upload well under 20);</li>
- *   <li>animations keep running: after ticking the atlas, animated sprites show
- *       one of their frames, and some changed.</li>
+ *   <li>an atlas that holds animated sprites was left as RGBA8: animations are never
+ *       compressed (vanilla, or Kerria, writes their frames).</li>
  * </ul>
  * Writes {@code tessera-selftest.txt} in the game directory; its first line ends
  * with PASS or FAIL.
@@ -56,18 +54,18 @@ public final class TesseraSelfTest {
     public static final boolean ENABLED = Boolean.getBoolean("tessera.selftest");
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Tessera/SelfTest");
-    private static final int SETTLE_TICKS = 200, GIVE_UP_TICKS = 6000, ANIMATION_TICKS = 60;
-    private static final double MIN_STATIC_PSNR = 28.0, MIN_FRAME_PSNR = 20.0;
+    private static final int SETTLE_TICKS = 200, GIVE_UP_TICKS = 6000;
+    private static final double MIN_STATIC_PSNR = 28.0;
     // BC1 stores 4 bits per texel (BC7: 8): detailed opaque atlases such as paintings land near 25 dB.
     private static final double MIN_STATIC_PSNR_BC1 = 24.0;
     private static final int GL_COMPRESSED_RGBA_BPTC_UNORM = 0x8E8C;
     private static final int GL_COMPRESSED_RGB_S3TC_DXT1 = 0x83F0, GL_COMPRESSED_RGBA_S3TC_DXT1 = 0x83F1;
 
-    // Compressed atlases come from CompressedAnimationUploader, not AtlasCompressEvent.Post:
+    // Compressed atlases come from CompressedAtlases, not AtlasCompressEvent.Post:
     // on 1.21 - 1.21.1 the first reload runs during mod loading, when NeoForge's bus
     // still drops events, so the early atlases' events never arrive.
     private static int seenRegistrations = -1;
-    private static int ticks, lastCompressedTick = -1, animatedChanged;
+    private static int ticks, lastCompressedTick = -1;
     private static boolean done;
 
     private TesseraSelfTest() {
@@ -184,31 +182,19 @@ public final class TesseraSelfTest {
         }
         ticks++;
         Minecraft mc = Minecraft.getInstance();
-        if (CompressedAnimationUploader.registrations() != seenRegistrations) {
-            seenRegistrations = CompressedAnimationUploader.registrations();
+        if (CompressedAtlases.registrations() != seenRegistrations) {
+            seenRegistrations = CompressedAtlases.registrations();
             lastCompressedTick = ticks;
-            EncodeStats.reset();
         }
-        // The block atlas is the largest and usually the last one compressed.
-        // With the default policy (animated atlases stay RGBA8888, or Kerria is installed) the
-        // block atlas is never compressed: settle once any other atlas was.
-        boolean blocksDone = AtlasPolicy.mayCompressAnimated()
-                ? CompressedAnimationUploader.compressedAtlases().keySet().stream()
-                        .anyMatch(atlas -> isBlocks(atlas.location().toString()))
-                : !CompressedAnimationUploader.compressedAtlases().isEmpty();
-        boolean settled = !overlayShown(mc) && blocksDone && ticks - lastCompressedTick >= SETTLE_TICKS
-                && CompressedAnimationUploader.pendingUpgrades() == 0;
+        // Atlases with animations stay RGBA8, so the block atlas is never among the compressed ones:
+        // settle once some atlas was compressed and no more arrive.
+        boolean settled = !overlayShown(mc) && !CompressedAtlases.all().isEmpty()
+                && ticks - lastCompressedTick >= SETTLE_TICKS;
         if (!settled && ticks < GIVE_UP_TICKS) {
             return;
         }
         done = true;
         List<String> lines = new ArrayList<>();
-        // Steady state since the last atlas was compressed: what animations cost per client tick.
-        int window = Math.max(1, ticks - lastCompressedTick);
-        lines.add(String.format("animation encoding on the render thread over %d ticks: %d encodes (%d more found"
-                        + " by content), %.3f ms per tick (largest %.3f ms); native encodes in the background: %d, %.1f ms",
-                window, EncodeStats.calls, EncodeStats.found, EncodeStats.nanos / 1e6 / window,
-                EncodeStats.maxNanos / 1e6, EncodeStats.bestCalls(), EncodeStats.bestNanos() / 1e6));
         boolean pass;
         try {
             pass = check(lines);
@@ -233,43 +219,31 @@ public final class TesseraSelfTest {
             return false;
         }
         out.add("renderer " + GL11.glGetString(GL11.GL_RENDERER) + ", " + GL11.glGetString(GL11.GL_VERSION));
-        Map<TextureAtlas, CompressionPipeline.Target> compressed = CompressedAnimationUploader.compressedAtlases();
+        Map<TextureAtlas, CompressionPipeline.Target> compressed = CompressedAtlases.all();
         if (compressed.isEmpty()) {
             out.add("no atlas was compressed within " + GIVE_UP_TICKS + " ticks");
             return false;
         }
-        boolean animatedMayBeCompressed = AtlasPolicy.mayCompressAnimated();
-        boolean ok;
-        if (animatedMayBeCompressed) {
-            ok = compressed.keySet().stream().anyMatch(atlas -> isBlocks(atlas.location().toString()));
-            if (!ok) {
-                out.add("the block atlas was not compressed");
+        boolean ok = true;
+        // Animated textures stay RGBA8888: no compressed atlas may hold an animated sprite...
+        for (TextureAtlas atlas : compressed.keySet()) {
+            if (TesseraCompat.textures(atlas).stream().anyMatch(sprite -> TesseraCompat.isAnimated(sprite.contents()))) {
+                out.add(atlas.location() + " holds animated sprites but was compressed");
+                ok = false;
             }
-        } else {
-            // Animated textures stay RGBA8888: no compressed atlas may hold an animated sprite.
-            ok = true;
-            for (TextureAtlas atlas : compressed.keySet()) {
-                if (TesseraCompat.textures(atlas).stream().anyMatch(sprite -> TesseraCompat.isAnimated(sprite.contents()))) {
-                    out.add(atlas.location() + " holds animated sprites but was compressed");
-                    ok = false;
-                }
-            }
-            out.add("animated atlases kept as RGBA8888 (Kerria installed: " + ModCompat.isKerriaLoaded() + ")");
         }
-        boolean anyAnimated = false;
+        // ...and the atlases that were skipped for holding some are still plain RGBA8.
+        for (TextureAtlas atlas : CompressedAtlases.keptForAnimations()) {
+            TesseraCompat.bindTexture(TesseraCompat.glId(atlas));
+            int format = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_INTERNAL_FORMAT);
+            boolean rgba = format == GL11.GL_RGBA8 || format == GL11.GL_RGBA; // vanilla uploads with the unsized GL_RGBA
+            out.add(String.format("%s has animations: internal format 0x%X (%s)", atlas.location(), format,
+                    rgba ? "RGBA8888, as expected" : "NOT RGBA8888"));
+            ok &= rgba;
+        }
+        out.add("Kerria installed: " + ModCompat.isKerriaLoaded());
         for (var entry : compressed.entrySet()) {
-            TextureAtlas atlas = entry.getKey();
-            AtlasCache.CompressedFormat format = entry.getValue() == CompressionPipeline.Target.BC7
-                    ? AtlasCache.CompressedFormat.BC7 : AtlasCache.CompressedFormat.BC1;
-            ok &= checkAtlas(atlas.location().toString(), atlas, format, out);
-            anyAnimated |= TesseraCompat.textures(atlas).stream()
-                    .anyMatch(sprite -> TesseraCompat.isAnimated(sprite.contents()));
-        }
-        // Some animations are slow (a GUI icon may hold a frame for seconds), but
-        // across every compressed atlas some must have moved on.
-        if (animatedMayBeCompressed && anyAnimated && animatedChanged == 0) {
-            out.add("no animated sprite changed in any compressed atlas");
-            ok = false;
+            ok &= checkAtlas(entry.getKey().location().toString(), entry.getKey(), entry.getValue(), out);
         }
         return ok;
     }
@@ -278,7 +252,7 @@ public final class TesseraSelfTest {
         return atlasName.endsWith("textures/atlas/blocks.png");
     }
 
-    private static boolean checkAtlas(String name, TextureAtlas atlas, AtlasCache.CompressedFormat expectedFormat,
+    private static boolean checkAtlas(String name, TextureAtlas atlas, CompressionPipeline.Target expectedFormat,
                                       List<String> out) {
         int glId = TesseraCompat.glId(atlas);
         TesseraCompat.bindTexture(glId);
@@ -296,7 +270,7 @@ public final class TesseraSelfTest {
                 break;
             }
             int format = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, level, GL11.GL_TEXTURE_INTERNAL_FORMAT);
-            boolean expected = expectedFormat == AtlasCache.CompressedFormat.BC1
+            boolean expected = expectedFormat == CompressionPipeline.Target.BC1
                     ? format == GL_COMPRESSED_RGB_S3TC_DXT1 || format == GL_COMPRESSED_RGBA_S3TC_DXT1
                     : format == GL_COMPRESSED_RGBA_BPTC_UNORM;
             if (!expected || w != Math.max(1, width >> level) || h != Math.max(1, height >> level)) {
@@ -309,71 +283,22 @@ public final class TesseraSelfTest {
 
         ByteBuffer pixels = readLevel0(width, height);
         try {
-            // Static sprites: the decoded atlas against the sprites' own pixels.
-            List<TextureAtlasSprite> animated = new ArrayList<>();
+            // The decoded atlas against the sprites' own pixels.
             Error staticError = new Error();
             for (TextureAtlasSprite sprite : TesseraCompat.textures(atlas)) {
-                if (TesseraCompat.isAnimated(sprite.contents())) {
-                    animated.add(sprite);
-                } else {
-                    compare(pixels, width, sprite, 0, staticError);
-                }
+                compare(pixels, width, sprite, 0, staticError);
             }
             double staticPsnr = staticError.psnr();
-            double minStatic = expectedFormat.toString().contains("BC1") ? MIN_STATIC_PSNR_BC1 : MIN_STATIC_PSNR;
+            double minStatic = expectedFormat == CompressionPipeline.Target.BC1 ? MIN_STATIC_PSNR_BC1 : MIN_STATIC_PSNR;
             boolean staticOk = staticPsnr >= minStatic;
-            out.add(String.format("%s %s %dx%d, %d levels (max %d): static sprites PSNR %.1f dB over %d texels%s",
+            out.add(String.format("%s %s %dx%d, %d levels (max %d): sprites PSNR %.1f dB over %d texels%s",
                     name, expectedFormat, width, height, levels, maxLevel, staticPsnr, staticError.count,
                     staticOk ? "" : " (below " + minStatic + ")"));
             ok &= staticOk;
-
-            if (!animated.isEmpty()) {
-                ok &= checkAnimations(name, atlas, glId, width, height, pixels, animated, out);
-            }
         } finally {
             MemoryUtil.memFree(pixels);
         }
         return ok;
-    }
-
-    /** Ticks the atlas (as the client does every tick) and checks the animated sprites. */
-    private static boolean checkAnimations(String name, TextureAtlas atlas, int glId, int width, int height,
-                                           ByteBuffer before, List<TextureAtlasSprite> animated, List<String> out) {
-        for (int i = 0; i < ANIMATION_TICKS; i++) {
-            atlas.tick();
-        }
-        TesseraCompat.bindTexture(glId);
-        ByteBuffer after = readLevel0(width, height);
-        try {
-            int changed = 0, matching = 0;
-            List<String> mismatched = new ArrayList<>();
-            for (TextureAtlasSprite sprite : animated) {
-                if (differs(before, after, width, sprite)) {
-                    changed++;
-                }
-                double best = 0.0;
-                for (int frame : TesseraCompat.uniqueFrames(sprite.contents())) {
-                    Error e = new Error();
-                    compare(after, width, sprite, frame, e);
-                    best = Math.max(best, e.psnr());
-                }
-                if (best >= MIN_FRAME_PSNR) {
-                    matching++;
-                } else {
-                    mismatched.add(String.format("%s %.1f dB (%dx%d at %d,%d, %d frames)", sprite.contents().name(), best,
-                            sprite.contents().width(), sprite.contents().height(), sprite.getX(), sprite.getY(),
-                            TesseraCompat.uniqueFrames(sprite.contents()).length));
-                }
-            }
-            animatedChanged += changed;
-            boolean ok = matching == animated.size();
-            out.add(String.format("%s: %d animated sprites, %d changed after %d ticks, %d show one of their frames%s",
-                    name, animated.size(), changed, ANIMATION_TICKS, matching, ok ? "" : " FAIL:"));
-            mismatched.forEach(m -> out.add("    " + m));
-            return ok;
-        } finally {
-            MemoryUtil.memFree(after);
-        }
     }
 
     /** Level 0 of the bound texture as RGBA8, decoded by the driver. */
@@ -408,19 +333,6 @@ public final class TesseraSelfTest {
                 error.count++;
             }
         }
-    }
-
-    private static boolean differs(ByteBuffer a, ByteBuffer b, int atlasWidth, TextureAtlasSprite sprite) {
-        int padding = TesseraCompat.padding(sprite);
-        for (int y = 0; y < sprite.contents().height(); y++) {
-            int row = ((sprite.getY() + padding + y) * atlasWidth + sprite.getX() + padding) * 4;
-            for (int x = 0; x < sprite.contents().width(); x++) {
-                if (a.getInt(row + x * 4) != b.getInt(row + x * 4)) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     /**

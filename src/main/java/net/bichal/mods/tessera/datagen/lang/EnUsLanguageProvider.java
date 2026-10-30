@@ -33,9 +33,6 @@ public class EnUsLanguageProvider extends LanguageProvider {
         addConfigOption("disableNativeCompression", "Disable Native Compression",
                 "Forces vanilla RGBA atlas behavior even if BC7 native compression is supported.");
 
-        addConfigOption("compressAnimatedAtlases", "Compress Animated Atlases",
-                "Also compress atlases with animated textures. Off keeps them RGBA8888. Ignored while Kerria is installed.");
-
         // Deduplication Options
         addConfigOption("dedupSimilarityThreshold", "Deduplication Similarity Threshold",
                 "Hamming distance (0-64) for 64-bit pHash fingerprints. Lower values are stricter when merging duplicate sprites.");

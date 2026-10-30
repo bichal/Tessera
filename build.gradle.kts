@@ -19,10 +19,7 @@ val modProps = extensions.getByType(BichalModExtension::class.java).props
 val defaultQualityPreset: Long = modProps.req(project, "compression.default_quality_preset").toLong()
 val mainSourceSet = sourceSets.main.get()
 val generatedResources: File = rootProject.file("src/generated/resources")
-// -PselftestDefaultPolicy=true runs the self-test with the shipped defaults (animated atlases stay
-// RGBA8888); otherwise it opts in to compressing them, which is the path it checks frame by frame.
 // -PselftestMods=<jar>[,<jar>] adds mods to a Fabric run (e.g. a stand-in for Kerria).
-val selftestDefaultPolicy = (findProperty("selftestDefaultPolicy") as String?) == "true"
 val selftestMods = findProperty("selftestMods") as String?
 // -PselftestWorld=<commands file> (1.21.1): builds a showcase world and waits for a screenshot (see TesseraSelfTest).
 val selftestWorldCommands = findProperty("selftestWorld") as String?
@@ -50,8 +47,6 @@ pluginManager.withPlugin("net.neoforged.moddev") { configure<NeoForgeExtension> 
             client()
             gameDirectory = selftestDir
             systemProperty("tessera.selftest", "true")
-            // Unless told otherwise the self-test checks animations on compressed atlases (the opt-in BC path).
-            if (!selftestDefaultPolicy) systemProperty("tessera.compressAnimated", "true")
             if (selftestWorldCommands != null) systemProperty("tessera.selftest.world", selftestWorldCommands)
             systemProperty("tessera.selftest.version", modProps.currentVersion)
             jvmArgument("-Xmx2G")
@@ -97,7 +92,6 @@ if (modProps.isFabric) {
             create("selftest") {
                 client()
                 vmArg("-Dtessera.selftest=true")
-                if (!selftestDefaultPolicy) vmArg("-Dtessera.compressAnimated=true")
                 if (selftestWorldCommands != null) vmArg("-Dtessera.selftest.world=$selftestWorldCommands")
                 if ((findProperty("selftestScreen") as String?) == "true") vmArg("-Dtessera.selftest.screen=true")
                 if (selftestMods != null) vmArg("-Dfabric.addMods=$selftestMods")

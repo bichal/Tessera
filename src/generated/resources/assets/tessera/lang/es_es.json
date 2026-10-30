@@ -10,8 +10,6 @@
   "tessera.configuration.cache.tooltip": "Ajustes de la ubicación del almacenamiento en disco.",
   "tessera.configuration.cacheDirectory": "Directorio de Caché",
   "tessera.configuration.cacheDirectory.tooltip": "Nombre de la carpeta donde se almacenan en disco los bloques comprimidos en BC7.",
-  "tessera.configuration.compressAnimatedAtlases": "Comprimir Atlas Animados",
-  "tessera.configuration.compressAnimatedAtlases.tooltip": "Comprime también los atlas con texturas animadas. Desactivado los deja en RGBA8888. Se ignora si Kerria está instalado.",
   "tessera.configuration.compression": "Compresión",
   "tessera.configuration.compression.button": "Ajustes de Compresión",
   "tessera.configuration.compression.tooltip": "Ajustes de compresión nativa BC7 y congelación de animaciones.",
