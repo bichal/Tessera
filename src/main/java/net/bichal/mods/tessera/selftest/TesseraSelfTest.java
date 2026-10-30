@@ -76,9 +76,71 @@ public final class TesseraSelfTest {
     public static void register() {
         //? if fabric {
         /*net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(
-                client -> { if (SCREEN_PREVIEW) screenPreviewTick(); else tick(); });
+                client -> { if (WORLD_SHOT) worldShotTick(); else if (SCREEN_PREVIEW) screenPreviewTick(); else tick(); });
         *///?} else
-        NeoForge.EVENT_BUS.addListener(ClientTickEvent.Post.class, e -> tick());
+        NeoForge.EVENT_BUS.addListener(ClientTickEvent.Post.class, e -> { if (WORLD_SHOT) worldShotTick(); else tick(); });
+    }
+
+    /**
+     * -Dtessera.selftest.world=<commands file>: opens (creating it on the first run) a creative superflat
+     * world, builds a showcase of textures with the commands of that file, stands the player in front of
+     * it and leaves {@code tessera-world-ready} in the game directory for a screenshot. 1.21.1 only.
+     */
+    private static final String WORLD_SHOT_COMMANDS = System.getProperty("tessera.selftest.world");
+    private static final boolean WORLD_SHOT = WORLD_SHOT_COMMANDS != null;
+    private static final String WORLD_NAME = "tessera-shot";
+    private static int worldJoinedTick = -1;
+    private static List<String> worldCommands;
+
+    private static void worldShotTick() {
+        //? <1.21.10 {
+        ticks++;
+        Minecraft mc = Minecraft.getInstance();
+        try {
+            if (mc.level == null || mc.player == null) {
+                if (ticks == 150) {
+                    var flows = mc.createWorldOpenFlows();
+                    if (mc.getLevelSource().levelExists(WORLD_NAME)) {
+                        flows.openWorld(WORLD_NAME, () -> LOGGER.error("Tessera world shot: the world did not open"));
+                    } else {
+                        var settings = new net.minecraft.world.level.LevelSettings(WORLD_NAME,
+                                net.minecraft.world.level.GameType.CREATIVE, false, net.minecraft.world.Difficulty.PEACEFUL,
+                                true, new net.minecraft.world.level.GameRules(),
+                                net.minecraft.world.level.WorldDataConfiguration.DEFAULT);
+                        flows.createFreshLevel(WORLD_NAME, settings, net.minecraft.world.level.levelgen.WorldOptions.defaultWithRandomSeed(),
+                                access -> access.lookupOrThrow(net.minecraft.core.registries.Registries.WORLD_PRESET)
+                                        .getOrThrow(net.minecraft.world.level.levelgen.presets.WorldPresets.FLAT).value()
+                                        .createWorldDimensions(),
+                                mc.screen);
+                    }
+                }
+                return;
+            }
+            if (worldJoinedTick < 0) {
+                worldJoinedTick = ticks;
+                worldCommands = Files.readAllLines(java.nio.file.Path.of(WORLD_SHOT_COMMANDS));
+                LOGGER.info("Tessera world shot: in the world, running {} commands", worldCommands.size());
+            }
+            int since = ticks - worldJoinedTick;
+            // One command a tick, after the world has settled.
+            if (since >= 100 && since < 100 + worldCommands.size()) {
+                String command = worldCommands.get(since - 100).strip();
+                if (!command.isEmpty()) {
+                    mc.player.connection.sendCommand(command);
+                }
+            } else if (since == 100 + worldCommands.size() + 20) {
+                mc.player.connection.sendCommand("tp @s 0 -60 0 0 6");
+            } else if (since == 100 + worldCommands.size() + 500) {
+                Files.writeString(mc.gameDirectory.toPath().resolve("tessera-world-ready"), "ready");
+            } else if (since == 100 + worldCommands.size() + 620) {
+                mc.stop();
+            }
+        } catch (IOException | RuntimeException e) {
+            LOGGER.error("Tessera world shot failed", e);
+            mc.stop();
+        }
+        //?} else
+        if (ticks++ == 0) LOGGER.warn("Tessera world shot: only built for 1.21.1");
     }
 
     /** Fabric: -Dtessera.selftest.screen=true opens the settings screen, marks the game directory, then closes it. */
