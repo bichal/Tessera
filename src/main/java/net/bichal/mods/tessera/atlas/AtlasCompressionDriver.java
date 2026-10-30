@@ -19,6 +19,8 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.security.MessageDigest;
+import net.bichal.mods.tessera.util.TesseraHasher;
 
 /**
  * BC1/BC7 compression and upload for one atlas texture.
@@ -146,6 +148,110 @@ public final class AtlasCompressionDriver {
         }
 
         return new AssembledAtlas(result.atlasBuffer(), opaque);
+    }
+
+    /**
+     * What identifies an atlas for the whole-chain cache: a digest of its layout and every
+     * sprite's pixels, and whether all of them are opaque (which decides the format).
+     */
+    public record Fingerprint(String digest, boolean opaque) {
+    }
+
+    /**
+     * Digest of an atlas as stitched: its size, mip level, each sprite's position, padding and
+     * pixels. Cheaper than {@link #assembleAtlasBuffer} plus per-level hashing, and enough to
+     * tell whether an encoded chain from an earlier run still applies.
+     */
+    public static Fingerprint fingerprint(
+            Collection<TextureAtlasSprite> regions, int atlasWidth, int atlasHeight, int mipLevel) {
+        MessageDigest digest = TesseraHasher.newDigest();
+        ByteBuffer head = ByteBuffer.allocate(Integer.BYTES * 5).order(ByteOrder.LITTLE_ENDIAN);
+        head.putInt(atlasWidth).putInt(atlasHeight).putInt(mipLevel)
+                .putInt(Config.get(Config.DEDUP_SIMILARITY_THRESHOLD).hashCode()).putInt(regions.size());
+        digest.update(head.array());
+
+        boolean opaque = true;
+        byte[] row = new byte[0];
+        for (TextureAtlasSprite sprite : regions) {
+            int padding = TesseraCompat.padding(sprite);
+            int width = sprite.contents().width() + 2 * padding;
+            int height = sprite.contents().height() + 2 * padding;
+            int maxX = sprite.contents().width() - 1;
+            int maxY = sprite.contents().height() - 1;
+            ByteBuffer place = ByteBuffer.allocate(Integer.BYTES * 4).order(ByteOrder.LITTLE_ENDIAN);
+            place.putInt(sprite.getX()).putInt(sprite.getY()).putInt(width).putInt(height);
+            digest.update(place.array());
+            if (row.length < width * 4) {
+                row = new byte[width * 4];
+            }
+            ByteBuffer rowView = ByteBuffer.wrap(row).order(ByteOrder.LITTLE_ENDIAN);
+            for (int y = 0; y < height; y++) {
+                int sy = Math.max(0, Math.min(maxY, y - padding));
+                rowView.clear();
+                for (int x = 0; x < width; x++) {
+                    int abgr = TesseraCompat.spriteAbgr(sprite, 0, Math.max(0, Math.min(maxX, x - padding)), sy);
+                    opaque &= (abgr >>> 24) == 0xFF;
+                    rowView.putInt(abgr);
+                }
+                digest.update(row, 0, width * 4);
+            }
+        }
+        return new Fingerprint(TesseraHasher.hex(digest), opaque);
+    }
+
+    private static String chainKey(Fingerprint fingerprint, int quality) {
+        return fingerprint.digest() + "-chain-q" + quality + (TesseraRuntime.isNativeActive() ? "n" : "s") + CACHE_VERSION;
+    }
+
+    /**
+     * The encoded chain stored for this exact atlas, or {@code null} when there is none, it does
+     * not fit the VRAM budget, or it cannot be read; the caller then assembles and encodes.
+     */
+    public static CompressedAtlas loadChain(
+            String atlasLocation, CompressionPipeline.Target target, Fingerprint fingerprint, int requestedMaxLevel
+    ) {
+        int quality = Config.get(Config.COMPRESSION_QUALITY);
+        try {
+            var hit = cache().readChain(chainKey(fingerprint, quality), target.cacheFormat(), quality);
+            if (hit.isEmpty()) {
+                return null;
+            }
+            List<CompressedLevel> levels = new ArrayList<>(hit.get().size());
+            long resident = 0;
+            for (int level = 0; level < hit.get().size(); level++) {
+                AtlasCache.ChainLevel stored = hit.get().get(level);
+                if (stored.blocks().remaining() != target.levelBytes(stored.width(), stored.height())) {
+                    return null;
+                }
+                resident += stored.blocks().remaining();
+                levels.add(new CompressedLevel(level, stored.width(), stored.height(), stored.blocks()));
+            }
+            if (!VramBudgetEngine.isWithinBudget(atlasLocation, resident)) {
+                return null;
+            }
+            LOGGER.info("Atlas {}: all {} mip level(s) served from one disk cache entry.", atlasLocation, levels.size());
+            return new CompressedAtlas(atlasLocation, target, levels, requestedMaxLevel);
+        } catch (IOException | RuntimeException e) {
+            LOGGER.debug("Ignoring unreadable chain entry for atlas {}", atlasLocation, e);
+            return null;
+        }
+    }
+
+    /** Stores a complete chain under the atlas fingerprint for the next run. */
+    public static void storeChain(Fingerprint fingerprint, CompressedAtlas compressed) {
+        if (compressed == null || !isFullChain(compressed)) {
+            return;
+        }
+        int quality = Config.get(Config.COMPRESSION_QUALITY);
+        List<AtlasCache.ChainLevel> levels = new ArrayList<>(compressed.levels().size());
+        for (CompressedLevel level : compressed.levels()) {
+            levels.add(new AtlasCache.ChainLevel(level.width(), level.height(), level.compressedBlocks()));
+        }
+        try {
+            cache().writeChain(chainKey(fingerprint, quality), compressed.target().cacheFormat(), quality, levels);
+        } catch (IOException | RuntimeException e) {
+            LOGGER.debug("Failed writing chain entry for atlas {}", compressed.atlasLocation(), e);
+        }
     }
 
     /**

@@ -16,6 +16,8 @@ public final class AtlasCache {
 
     // TSR3 (TSR2 stored the blocks as they were): the payload may be compressed with CacheCodec.
     private static final byte[] MAGIC = {'T', 'S', 'R', '3'};
+    // A whole mip chain in one entry, keyed by the atlas fingerprint instead of per-level pixels.
+    private static final byte[] CHAIN_MAGIC = {'T', 'S', 'C', '1'};
     private static final int HEADER_BYTES = MAGIC.length + Integer.BYTES * 7;
     private static final int PAYLOAD_RAW = 0;
     private static final int PAYLOAD_CELERIS = 1;
@@ -156,6 +158,124 @@ public final class AtlasCache {
                 }
             }
             Files.move(tempFile, fileFor(hashHex, format), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            Files.deleteIfExists(tempFile);
+            throw e;
+        }
+    }
+
+
+    /** One level of a cached chain: its size and its encoded blocks. */
+    public record ChainLevel(int width, int height, ByteBuffer blocks) {
+    }
+
+    /**
+     * Reads a whole mip chain stored under an atlas fingerprint. Any mismatch (format, quality,
+     * a damaged or truncated file) is a miss.
+     */
+    public Optional<java.util.List<ChainLevel>> readChain(String key, CompressedFormat format, int qualityPreset) throws IOException {
+        Path file = fileFor(key, format);
+        if (!Files.isRegularFile(file)) {
+            return Optional.empty();
+        }
+        ByteBuffer all = ByteBuffer.wrap(Files.readAllBytes(file)).order(ByteOrder.LITTLE_ENDIAN);
+        if (all.remaining() < CHAIN_MAGIC.length + Integer.BYTES * 6) {
+            return Optional.empty();
+        }
+        byte[] magic = new byte[CHAIN_MAGIC.length];
+        all.get(magic);
+        if (!java.util.Arrays.equals(magic, CHAIN_MAGIC)
+                || all.getInt() != format.ordinal() || all.getInt() != qualityPreset) {
+            return Optional.empty();
+        }
+        int levelCount = all.getInt();
+        int payloadLength = all.getInt();
+        int storedLength = all.getInt();
+        int encoding = all.getInt();
+        if (levelCount <= 0 || levelCount > 32 || payloadLength <= 0 || storedLength <= 0
+                || (encoding != PAYLOAD_RAW && encoding != PAYLOAD_CELERIS)
+                || (encoding == PAYLOAD_RAW && storedLength != payloadLength)
+                || all.remaining() < levelCount * Integer.BYTES * 3 + storedLength) {
+            return Optional.empty();
+        }
+        int[] widths = new int[levelCount];
+        int[] heights = new int[levelCount];
+        int[] lengths = new int[levelCount];
+        long sum = 0;
+        for (int i = 0; i < levelCount; i++) {
+            widths[i] = all.getInt();
+            heights[i] = all.getInt();
+            lengths[i] = all.getInt();
+            if (widths[i] <= 0 || heights[i] <= 0 || lengths[i] <= 0) {
+                return Optional.empty();
+            }
+            sum += lengths[i];
+        }
+        if (sum != payloadLength) {
+            return Optional.empty();
+        }
+        ByteBuffer stored = ByteBuffer.allocateDirect(storedLength).order(ByteOrder.LITTLE_ENDIAN);
+        stored.put(all.slice(all.position(), storedLength)).flip();
+        ByteBuffer payload = stored;
+        if (encoding == PAYLOAD_CELERIS) {
+            payload = CacheCodec.decompress(stored, payloadLength);
+            if (payload == null) {
+                return Optional.empty();
+            }
+        }
+        java.util.List<ChainLevel> levels = new java.util.ArrayList<>(levelCount);
+        int offset = 0;
+        for (int i = 0; i < levelCount; i++) {
+            ByteBuffer blocks = ByteBuffer.allocateDirect(lengths[i]).order(ByteOrder.LITTLE_ENDIAN);
+            blocks.put(payload.slice(offset, lengths[i])).flip();
+            levels.add(new ChainLevel(widths[i], heights[i], blocks));
+            offset += lengths[i];
+        }
+        touch(file);
+        return Optional.of(levels);
+    }
+
+    /** Stores a whole mip chain under an atlas fingerprint (all levels in one file). */
+    public void writeChain(String key, CompressedFormat format, int qualityPreset, java.util.List<ChainLevel> levels) throws IOException {
+        Files.createDirectories(cacheDirectory);
+        int payloadLength = 0;
+        for (ChainLevel level : levels) {
+            payloadLength += level.blocks().remaining();
+        }
+        ByteBuffer raw = ByteBuffer.allocateDirect(payloadLength).order(ByteOrder.LITTLE_ENDIAN);
+        for (ChainLevel level : levels) {
+            raw.put(level.blocks().duplicate());
+        }
+        raw.flip();
+        ByteBuffer packed = CacheCodec.compress(raw);
+        ByteBuffer stored = packed != null ? packed : raw;
+        ByteBuffer header = ByteBuffer.allocate(CHAIN_MAGIC.length + Integer.BYTES * 6 + levels.size() * Integer.BYTES * 3)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        header.put(CHAIN_MAGIC);
+        header.putInt(format.ordinal());
+        header.putInt(qualityPreset);
+        header.putInt(levels.size());
+        header.putInt(payloadLength);
+        header.putInt(stored.remaining());
+        header.putInt(packed != null ? PAYLOAD_CELERIS : PAYLOAD_RAW);
+        for (ChainLevel level : levels) {
+            header.putInt(level.width());
+            header.putInt(level.height());
+            header.putInt(level.blocks().remaining());
+        }
+        header.flip();
+
+        Path tempFile = Files.createTempFile(cacheDirectory, key, ".tmp");
+        try {
+            try (FileChannel channel = FileChannel.open(tempFile, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                ByteBuffer[] parts = {header, stored};
+                long total = (long) header.remaining() + stored.remaining();
+                long written = 0;
+                while (written < total) {
+                    written += channel.write(parts);
+                }
+            }
+            Files.move(tempFile, fileFor(key, format), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             Files.deleteIfExists(tempFile);
             throw e;

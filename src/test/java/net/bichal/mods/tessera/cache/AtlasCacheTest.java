@@ -62,4 +62,54 @@ class AtlasCacheTest {
         Files.write(dir.resolve("c.bc7"), new byte[]{'T', 'S', 'R', '2', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9});
         assertTrue(new AtlasCache(dir).read("c", AtlasCache.CompressedFormat.BC7).isEmpty());
     }
+
+    private static ByteBuffer filled(int length, int seed) {
+        ByteBuffer blocks = ByteBuffer.allocateDirect(length).order(ByteOrder.LITTLE_ENDIAN);
+        Random random = new Random(seed);
+        while (blocks.hasRemaining()) {
+            boolean empty = random.nextInt(10) < 7;
+            for (int i = 0; i < 16 && blocks.hasRemaining(); i++) {
+                blocks.put(empty ? 0 : (byte) random.nextInt());
+            }
+        }
+        return blocks.flip();
+    }
+
+    @Test
+    void aWholeChainReadsBackLevelForLevel() throws IOException {
+        var levels = java.util.List.of(
+                new AtlasCache.ChainLevel(512, 512, filled(512 * 512, 1)),
+                new AtlasCache.ChainLevel(256, 256, filled(256 * 256, 2)),
+                new AtlasCache.ChainLevel(128, 128, filled(128 * 128, 3)));
+        AtlasCache cache = new AtlasCache(dir);
+        cache.writeChain("d-chain", AtlasCache.CompressedFormat.BC7, 3, levels);
+
+        var back = cache.readChain("d-chain", AtlasCache.CompressedFormat.BC7, 3).orElseThrow();
+        assertEquals(levels.size(), back.size());
+        for (int i = 0; i < levels.size(); i++) {
+            assertEquals(levels.get(i).width(), back.get(i).width());
+            assertEquals(levels.get(i).height(), back.get(i).height());
+            assertEquals(levels.get(i).blocks().duplicate(), back.get(i).blocks());
+        }
+    }
+
+    @Test
+    void aChainForAnotherFormatOrQualityIsAMiss() throws IOException {
+        AtlasCache cache = new AtlasCache(dir);
+        cache.writeChain("e-chain", AtlasCache.CompressedFormat.BC7, 3,
+                java.util.List.of(new AtlasCache.ChainLevel(64, 64, filled(4096, 4))));
+        assertTrue(cache.readChain("e-chain", AtlasCache.CompressedFormat.BC7, 4).isEmpty());
+        assertTrue(cache.readChain("e-chain", AtlasCache.CompressedFormat.BC1, 3).isEmpty());
+    }
+
+    @Test
+    void aTruncatedChainIsAMiss() throws IOException {
+        AtlasCache cache = new AtlasCache(dir);
+        cache.writeChain("f-chain", AtlasCache.CompressedFormat.BC7, 3,
+                java.util.List.of(new AtlasCache.ChainLevel(64, 64, filled(4096, 5))));
+        Path file = dir.resolve("f-chain.bc7");
+        byte[] bytes = Files.readAllBytes(file);
+        Files.write(file, java.util.Arrays.copyOf(bytes, bytes.length - 20));
+        assertTrue(cache.readChain("f-chain", AtlasCache.CompressedFormat.BC7, 3).isEmpty());
+    }
 }
