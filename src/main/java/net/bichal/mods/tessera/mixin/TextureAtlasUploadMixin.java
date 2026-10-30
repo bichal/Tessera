@@ -122,11 +122,18 @@ public abstract class TextureAtlasUploadMixin {
             return;
         }
 
-        // Animated sprites keep animating on the compressed atlas: frames are written
-        // as BC blocks by CompressedAnimationUploader, which needs every animated
-        // region (with its padding, 1.21.11+) 4x4-block aligned at each compressed
-        // mip level, so the chain is capped where that stops holding (e.g. a 16px
-        // sprite at level >= 3).
+        // Animated textures stay RGBA8888: an atlas that holds any is left as vanilla
+        // uploaded it, so frames reach it the vanilla way (or Kerria's). The BC frame
+        // path below is opt-in, and never used next to Kerria.
+        boolean hasAnimated = sprites.stream().anyMatch(sprite -> TesseraCompat.isAnimated(sprite.contents()));
+        if (hasAnimated && !AtlasPolicy.mayCompressAnimated()) {
+            LOGGER.info("Atlas {} has animated sprites: kept as RGBA8888.", atlasName);
+            return;
+        }
+
+        // The BC frame path needs every animated region (with its padding, 1.21.11+)
+        // 4x4-block aligned at each compressed mip level, so the chain is capped where
+        // that stops holding (e.g. a 16px sprite at level >= 3).
         int[] animatedRects = sprites.stream()
                 .filter(sprite -> TesseraCompat.isAnimated(sprite.contents()))
                 .flatMapToInt(sprite -> {
@@ -145,9 +152,22 @@ public abstract class TextureAtlasUploadMixin {
             return;
         }
 
-        // Default format: BC7 (keeps alpha). Listeners may cancel or pick BC1.
+        // Pixel assembly stays synchronous: it reads sprite images that vanilla may
+        // close after this reload completes.
+        AtlasCompressionDriver.AssembledAtlas atlasPixels = AtlasCompressionDriver.assembleAtlasBuffer(
+                atlasName, sprites, preparations.width(), preparations.height());
+        if (atlasPixels == null) {
+            return;
+        }
+        ByteBuffer assembled = atlasPixels.pixels();
+
+        // Default format by content: BC1 when every texel is opaque, BC7 otherwise (keeps alpha).
+        // Listeners may cancel or pick the other one.
+        AtlasCache.CompressedFormat defaultFormat = atlasPixels.opaque() && Bc1TextureFormatSupport.isSupported()
+                ? AtlasCache.CompressedFormat.BC1
+                : AtlasCache.CompressedFormat.BC7;
         AtlasCompressEvent.Pre pre = NeoForge.EVENT_BUS.post(
-                new AtlasCompressEvent.Pre(atlasLocation, AtlasCache.CompressedFormat.BC7));
+                new AtlasCompressEvent.Pre(atlasLocation, defaultFormat));
         if (pre.isCanceled()) {
             return;
         }
@@ -159,14 +179,6 @@ public abstract class TextureAtlasUploadMixin {
                 ? Bc1TextureFormatSupport.isSupported()
                 : Bc7GpuSupport.isSupported();
         if (!formatSupported) {
-            return;
-        }
-
-        // Pixel assembly stays synchronous: it reads sprite images that vanilla may
-        // close after this reload completes.
-        ByteBuffer assembled = AtlasCompressionDriver.assembleAtlasBuffer(
-                atlasName, sprites, preparations.width(), preparations.height());
-        if (assembled == null) {
             return;
         }
 

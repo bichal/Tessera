@@ -18,4 +18,9 @@ class AtlasPolicyTest {
         assertTrue(AtlasPolicy.isCompressible("minecraft:textures/atlas/particles.png"));
         assertTrue(AtlasPolicy.isCompressible("minecraft:textures/atlas/chests.png"));
     }
+
+    @Test
+    void atlasesWithAnimatedSpritesStayRgba8888ByDefault() {
+        assertFalse(AtlasPolicy.mayCompressAnimated());
+    }
 }
