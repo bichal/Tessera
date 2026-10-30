@@ -8,7 +8,6 @@
 		"DebugScreenEntriesFabricMixin",
 		"DebugScreenFabricMixin",
 		"KeyboardHandlerAccessor",
-		"SpriteContentsUploadMixin",
 		"TextureAtlasAccessor",
 		"TextureAtlasSpriteAccessor",
 		"TextureAtlasUploadMixin"

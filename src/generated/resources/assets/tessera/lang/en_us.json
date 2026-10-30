@@ -10,8 +10,6 @@
   "tessera.configuration.cache.tooltip": "Configure disk cache location for compiled BC7 texture blocks.",
   "tessera.configuration.cacheDirectory": "Cache Directory",
   "tessera.configuration.cacheDirectory.tooltip": "Folder name where compiled BC7 texture blocks are stored on disk.",
-  "tessera.configuration.compressAnimatedAtlases": "Compress Animated Atlases",
-  "tessera.configuration.compressAnimatedAtlases.tooltip": "Also compress atlases with animated textures. Off keeps them RGBA8888. Ignored while Kerria is installed.",
   "tessera.configuration.compression": "Compression",
   "tessera.configuration.compression.button": "Compression Settings",
   "tessera.configuration.compression.tooltip": "Configure BC7 native compression behavior and animation freezing.",

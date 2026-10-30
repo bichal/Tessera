@@ -7,7 +7,7 @@ import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compat.TesseraCompat;
 import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
 import net.bichal.mods.tessera.compress.Bc7GpuSupport;
-import net.bichal.mods.tessera.compress.CompressedAnimationUploader;
+import net.bichal.mods.tessera.compress.CompressedAtlases;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.bichal.mods.tessera.config.Config;
 import net.bichal.mods.tessera.gui.DebugOverlay;
@@ -26,7 +26,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.nio.ByteBuffer;
 import java.util.Collection;
-import java.util.IdentityHashMap;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -47,10 +46,8 @@ import java.util.concurrent.CompletableFuture;
  * face culling, buffer lifecycle -- none of that code exists in this
  * design, because there is no second atlas and no custom draw call.
  *
- * <p>Animations keep running through {@link CompressedAnimationUploader}:
- * frames up to 1.21.10 arrive through {@code SpriteContents.upload} (see
- * {@link SpriteContentsUploadMixin}); from 1.21.11 vanilla draws them with
- * GPU passes into the atlas, which Tessera replaces for compressed atlases.
+ * <p>An atlas that holds animated sprites is not touched: vanilla keeps writing
+ * its frames as RGBA8888 (with Kerria, Kerria does), so animations are never affected.
  */
 @Mixin(TextureAtlas.class)
 public abstract class TextureAtlasUploadMixin {
@@ -61,7 +58,7 @@ public abstract class TextureAtlasUploadMixin {
     @Inject(method = "upload", at = @At("HEAD"))
     private void tessera$beforeUpload(SpriteLoader.Preparations preparations, CallbackInfo ci) {
         TextureAtlas atlas = (TextureAtlas) (Object) this;
-        CompressedAnimationUploader.unregister(atlas);
+        CompressedAtlases.unregister(atlas);
         DebugOverlay.resetAtlas(atlas.location().toString());
         VramBudgetEngine.recordResident(atlas.location().toString(), -1);
         // A chain still being encoded for the previous texture must not land on this one.
@@ -82,27 +79,6 @@ public abstract class TextureAtlasUploadMixin {
         }
     }
 
-    //? >=1.21.11 {
-    /*// Frames of a compressed atlas: drawn by Tessera instead of vanilla's GPU passes into it.
-    @Inject(method = "uploadAnimationFrames", at = @At("HEAD"), cancellable = true)
-    private void tessera$drawCompressedFrames(CallbackInfo ci) {
-        if (CompressedAnimationUploader.drawFrames((TextureAtlas) (Object) this, false)) {
-            ci.cancel();
-        }
-    }
-    *///?} else {
-    /** cycleAnimationFrames ticks every animated sprite; see SpriteContentsUploadMixin. */
-    @Inject(method = "cycleAnimationFrames", at = @At("HEAD"))
-    private void tessera$beginAnimationCycle(CallbackInfo ci) {
-        CompressedAnimationUploader.beginAnimationCycle((TextureAtlas) (Object) this);
-    }
-
-    @Inject(method = "cycleAnimationFrames", at = @At("RETURN"))
-    private void tessera$endAnimationCycle(CallbackInfo ci) {
-        CompressedAnimationUploader.endAnimationCycle();
-    }
-    //?}
-
     @Unique
     private void tessera$compressInPlaceUnchecked(SpriteLoader.Preparations preparations) {
         if (Config.get(Config.DISABLE_NATIVE_COMPRESSION)) {
@@ -122,32 +98,10 @@ public abstract class TextureAtlasUploadMixin {
         }
 
         // Animated textures stay RGBA8888: an atlas that holds any is left as vanilla
-        // uploaded it, so frames reach it the vanilla way (or Kerria's). The BC frame
-        // path below is opt-in, and never used next to Kerria.
-        boolean hasAnimated = sprites.stream().anyMatch(sprite -> TesseraCompat.isAnimated(sprite.contents()));
-        if (hasAnimated && !AtlasPolicy.mayCompressAnimated()) {
+        // uploaded it, so frames reach it the way vanilla writes them (or the way Kerria does).
+        if (AtlasPolicy.holdsAnimations(sprites)) {
             LOGGER.info("Atlas {} has animated sprites: kept as RGBA8888.", atlasName);
-            return;
-        }
-
-        // The BC frame path needs every animated region (with its padding, 1.21.11+)
-        // 4x4-block aligned at each compressed mip level, so the chain is capped where
-        // that stops holding (e.g. a 16px sprite at level >= 3).
-        int[] animatedRects = sprites.stream()
-                .filter(sprite -> TesseraCompat.isAnimated(sprite.contents()))
-                .flatMapToInt(sprite -> {
-                    int padding = TesseraCompat.padding(sprite);
-                    return java.util.stream.IntStream.of(sprite.getX(), sprite.getY(),
-                            sprite.contents().width() + 2 * padding, sprite.contents().height() + 2 * padding);
-                })
-                .toArray();
-        if (!CompressedAnimationUploader.canAnimate(animatedRects.length > 0)) {
-            return;
-        }
-        IdentityHashMap<Object, TextureAtlasSprite> animatedSprites = TesseraCompat.animatedSprites(self);
-        if (animatedSprites == null) {
-            LOGGER.warn("Atlas {}: animation states do not match its animated sprites; keeping it uncompressed.",
-                    atlasName);
+            CompressedAtlases.keepForAnimations(self);
             return;
         }
 
@@ -187,21 +141,12 @@ public abstract class TextureAtlasUploadMixin {
         int generation = tessera$generation;
         int width = preparations.width();
         int height = preparations.height();
-        // Full vanilla mip chain. Levels past alignedLevel (where animated sprites
-        // shrink below a 4x4 block) keep a small RGBA copy so frames can be
-        // patched and re-encoded per block (~1.3 MB for a 4096^2 atlas).
+        // The full vanilla mip chain.
         int mipLevel = preparations.mipLevel();
-        int alignedLevel = CompressedAnimationUploader.alignedMipLevels(mipLevel, animatedRects);
-        int retainFrom = alignedLevel < mipLevel ? alignedLevel + 1 : Integer.MAX_VALUE;
-        if (alignedLevel < mipLevel) {
-            LOGGER.info("Atlas {}: animated sprites patched per block at mip levels {}..{}.",
-                    atlasName, alignedLevel + 1, mipLevel);
-        }
 
         CompletableFuture
                 .supplyAsync(() -> AtlasCompressionDriver.compress(
-                        atlasName, target, assembled, width, height, mipLevel,
-                        retainFrom),
+                        atlasName, target, assembled, width, height, mipLevel),
                         TesseraCompat.backgroundExecutor())
                 .whenComplete((compressed, failure) -> {
                     if (failure != null) {
@@ -220,10 +165,7 @@ public abstract class TextureAtlasUploadMixin {
                             int glId = TesseraCompat.glId(self);
                             long resident = AtlasCompressionDriver.upload(glId, compressed);
                             if (resident >= 0) {
-                                // From now on animation frames go through the BC path.
-                                int uploadedLevels = Math.min(mipLevel, compressed.levels().size() - 1);
-                                CompressedAnimationUploader.register(self, glId, compressed.target(), uploadedLevels,
-                                        alignedLevel, compressed.retainedRgba(), animatedSprites);
+                                CompressedAtlases.register(self, compressed.target());
                                 long uncompressed = 0L;
                                 for (AtlasCompressionDriver.CompressedLevel level : compressed.levels()) {
                                     uncompressed += (long) level.width() * level.height() * 4;
