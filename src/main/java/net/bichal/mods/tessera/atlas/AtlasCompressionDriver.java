@@ -44,6 +44,14 @@ public final class AtlasCompressionDriver {
     }
 
     /**
+     * An assembled atlas.
+     *
+     * @param opaque every sprite texel (padding ring included) has alpha 255, so BC1 loses nothing
+     */
+    public record AssembledAtlas(ByteBuffer pixels, boolean opaque) {
+    }
+
+    /**
      * Assembles one contiguous RGBA8 buffer for an entire atlas from its
      * stitched sprites' pixel data, placed at each sprite's atlas position
      * ({@code TextureAtlasSprite.getX()/getY()}), and logs how many sprites are
@@ -53,12 +61,12 @@ public final class AtlasCompressionDriver {
      * @param regions     every sprite placed in this atlas by its own stitch pass
      * @param atlasWidth  the atlas's own packed width (from {@code Preparations.width()})
      * @param atlasHeight the atlas's own packed height (from {@code Preparations.height()})
-     * @return the assembled RGBA8 buffer, or {@code null} if native dedup
+     * @return the assembled RGBA8 buffer and whether it is opaque, or {@code null} if native dedup
      * detection is unavailable and the caller should fall back to
      * an uncompressed upload for this atlas
      */
     @SuppressWarnings("resource")
-    public static ByteBuffer assembleAtlasBuffer(
+    public static AssembledAtlas assembleAtlasBuffer(
             String label, Collection<TextureAtlasSprite> regions, int atlasWidth, int atlasHeight
     ) {
 
@@ -100,6 +108,7 @@ public final class AtlasCompressionDriver {
 
         ByteBuffer pixels = ByteBuffer.allocateDirect((int) totalPixelBytes).order(ByteOrder.LITTLE_ENDIAN);
         List<NativeFamilyDetector.SpriteInput> spriteInputs = new ArrayList<>(regions.size());
+        boolean opaque = true;
 
         index = 0;
         for (TextureAtlasSprite sprite : regions) {
@@ -114,7 +123,9 @@ public final class AtlasCompressionDriver {
                 for (int x = 0; x < spriteWidth; x++) {
                     int sx = Math.max(0, Math.min(maxX, x - padding));
                     int sy = Math.max(0, Math.min(maxY, y - padding));
-                    pixels.putInt(TesseraCompat.spriteAbgr(sprite, 0, sx, sy));
+                    int abgr = TesseraCompat.spriteAbgr(sprite, 0, sx, sy);
+                    opaque &= (abgr >>> 24) == 0xFF;
+                    pixels.putInt(abgr);
                 }
             }
 
@@ -138,7 +149,7 @@ public final class AtlasCompressionDriver {
                     duplicateCount, spriteInputs.size(), label);
         }
 
-        return result.atlasBuffer();
+        return new AssembledAtlas(result.atlasBuffer(), opaque);
     }
 
     /**

@@ -12,6 +12,7 @@ public final class Config {
     public static final ModConfigSpec.IntValue VRAM_BUDGET_TARGET_MB;
     public static final ModConfigSpec.ConfigValue<String> CACHE_DIRECTORY;
     public static final ModConfigSpec.BooleanValue DISABLE_NATIVE_COMPRESSION;
+    public static final ModConfigSpec.BooleanValue COMPRESS_ANIMATED_ATLASES;
     public static final ModConfigSpec.BooleanValue SHOW_EXTENDED_DEBUG_BREAKDOWN;
 
     static {
@@ -31,6 +32,14 @@ public final class Config {
                 .comment("Disables all atlas compression (native and pure-Java): atlases stay vanilla RGBA8.")
                 .translation("tessera.configuration.disableNativeCompression")
                 .define("disableNativeCompression", false);
+
+        COMPRESS_ANIMATED_ATLASES = builder
+                .comment(
+                        "Also block-compress atlases that contain animated textures (frames are then written as BC blocks).",
+                        "Off by default: those atlases stay RGBA8888. Ignored while Kerria is installed."
+                )
+                .translation("tessera.configuration.compressAnimatedAtlases")
+                .define("compressAnimatedAtlases", false);
 
         builder.pop();
 
