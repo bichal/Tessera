@@ -128,8 +128,6 @@ public final class TesseraSelfTest {
                 if (!command.isEmpty()) {
                     mc.player.connection.sendCommand(command);
                 }
-            } else if (since == 100 + worldCommands.size() + 20) {
-                mc.player.connection.sendCommand("tp @s 0 -60 0 0 6");
             } else if (since == 100 + worldCommands.size() + 500) {
                 Files.writeString(mc.gameDirectory.toPath().resolve("tessera-world-ready"), "ready");
             } else if (since == 100 + worldCommands.size() + 620) {
