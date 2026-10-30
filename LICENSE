@@ -22,6 +22,9 @@ Tessera is made of two kinds of content, each under its own license.
 3. THIRD-PARTY COMPONENTS
    bc7enc_rdo (MIT OR Unlicense): sources compiled into the bundled
    native library. https://github.com/richgel999/bc7enc_rdo
+   ASTC Encoder (astcenc) (Apache-2.0): sources compiled into the
+   bundled native library. https://github.com/ARM-software/astc-
+   encoder
    Their copyright notices and license texts are in NOTICE.
 
 ----------------------------------------------------------------------

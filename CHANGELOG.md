@@ -7,6 +7,15 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Added
 
+- ASTC for ARM GPUs (Apple Silicon, Android): a `Target` per block format (BC1, BC7, ASTC 4x4, ASTC 6x6) with its
+  own block size, `AstcGpuSupport` (`GL_KHR_texture_compression_astc_ldr`), and `AtlasFormats`, which picks BC1 / ASTC
+  6x6 for opaque atlases and BC7 / ASTC 4x4 for atlases with transparency, from what the driver takes.
+- ARM's astc-encoder in the native bridge (`nativeCompressAstc`, `nativeDecompressAstc`, ABI 3), built with NEON on
+  arm64 and SSE4.1 on x86_64, and macOS (Apple Silicon and Intel) among the native platforms.
+- A pure-Java ASTC encoder for platforms without the bridge (Android launchers). It refuses an image whose estimated
+  PSNR is below 27 dB (4x4) or 24 dB (6x6), leaving that atlas as vanilla.
+- `-Dtessera.formats=astc|bc` and the self-test properties `-PselftestFormats` and `-PselftestCompat`.
+
 - Fabric builds for every Minecraft version (`<version>-fabric` nodes): settings in `config/tessera.properties`, F3 lines
   through mixins, `AtlasCompressEvent.addListener`, and a client self-test run (`:<version>-fabric:selftest`).
 - `ModCompat`: Kerria detection (logged; Kerria and Tessera work on different atlases).
@@ -22,6 +31,9 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   JNI symbols, native test).
 
 ### Changed
+
+- The upload no longer assumes 4x4 blocks or OpenGL 4.3: level sizes come from the format's block size, and the GL
+  debug group is only used where the context has it (macOS and OpenGL ES layers do not).
 
 - The disk cache stores entries compressed with Celeris's codec (native zstd when loaded, deflate otherwise): 2668 KiB of
   blocks from a vanilla client took 307 KiB. The entry layout changed (`TSR3`); old entries are misses and get replaced.

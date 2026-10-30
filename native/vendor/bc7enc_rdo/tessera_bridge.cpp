@@ -1,5 +1,6 @@
 // tessera_bridge.cpp
 
+#include "astc_bridge.h"
 #include "rdo_bc_encoder.h"
 #include "bc7decomp.h"
 
@@ -139,7 +140,7 @@ static int64_t EncodeInto(
 
 /// Bumped on any signature/semantics change; checked by JniCompressionBackend
 /// so a stale library in the extraction cache is rejected instead of misbehaving.
-static constexpr jint kTesseraJniAbiVersion = 2;
+static constexpr jint kTesseraJniAbiVersion = 3;
 
 extern "C" {
 
@@ -214,6 +215,51 @@ Java_net_bichal_mods_tessera_compress_backend_JniCompressionBackend_nativeDecomp
         }
     }
     return 0;
+}
+
+
+JNIEXPORT jlong JNICALL
+Java_net_bichal_mods_tessera_compress_backend_JniCompressionBackend_nativeCompressAstc(
+    JNIEnv* env, jclass, jobject src, jint width, jint height, jint block_w, jint block_h, jint quality, jobject dst
+) {
+    if (width <= 0 || height <= 0 || block_w < 4 || block_h < 4 || block_w > 12 || block_h > 12) {
+        return -1;
+    }
+    auto* in = static_cast<const uint8_t*>(env->GetDirectBufferAddress(src));
+    auto* out = static_cast<uint8_t*>(env->GetDirectBufferAddress(dst));
+    jlong in_capacity = env->GetDirectBufferCapacity(src);
+    jlong out_capacity = env->GetDirectBufferCapacity(dst);
+    // Re-checked here, not trusted from Java: an undersized input would be an out-of-bounds native read.
+    if (in == nullptr || out == nullptr || in_capacity < 0 || out_capacity < 0
+        || static_cast<uint64_t>(in_capacity) < static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u) {
+        return -1;
+    }
+    return static_cast<jlong>(tessera_astc::Compress(
+        in, static_cast<uint32_t>(width), static_cast<uint32_t>(height), static_cast<uint32_t>(block_w),
+        static_cast<uint32_t>(block_h), quality, out, static_cast<uint64_t>(out_capacity)));
+}
+
+JNIEXPORT jint JNICALL
+Java_net_bichal_mods_tessera_compress_backend_JniCompressionBackend_nativeDecompressAstc(
+    JNIEnv* env, jclass, jobject src, jint width, jint height, jint block_w, jint block_h, jobject dst
+) {
+    if (width <= 0 || height <= 0 || block_w < 4 || block_h < 4 || block_w > 12 || block_h > 12) {
+        return -1;
+    }
+    auto* in = static_cast<const uint8_t*>(env->GetDirectBufferAddress(src));
+    auto* out = static_cast<uint8_t*>(env->GetDirectBufferAddress(dst));
+    jlong in_capacity = env->GetDirectBufferCapacity(src);
+    jlong out_capacity = env->GetDirectBufferCapacity(dst);
+    const uint64_t blocks_x = (static_cast<uint64_t>(width) + static_cast<uint64_t>(block_w) - 1u) / static_cast<uint64_t>(block_w);
+    const uint64_t blocks_y = (static_cast<uint64_t>(height) + static_cast<uint64_t>(block_h) - 1u) / static_cast<uint64_t>(block_h);
+    const uint64_t need_in = blocks_x * blocks_y * 16u;
+    const uint64_t need_out = static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u;
+    if (in == nullptr || out == nullptr || in_capacity < 0 || out_capacity < 0
+        || static_cast<uint64_t>(in_capacity) < need_in || static_cast<uint64_t>(out_capacity) < need_out) {
+        return -1;
+    }
+    return tessera_astc::Decompress(in, need_in, static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+                                    static_cast<uint32_t>(block_w), static_cast<uint32_t>(block_h), out);
 }
 
 }  // extern "C"

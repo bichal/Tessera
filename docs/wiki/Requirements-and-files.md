@@ -3,8 +3,9 @@
 | Your setup | Tessera |
 |---|---|
 | **Minecraft** 1.21 to 1.21.11 and 26.1--26.3, NeoForge or Fabric (Fabric API) |  Download the file made for your version |
-| **Windows** or **Linux** |  Supported |
-| **macOS** |  macOS doesn't support the texture format Tessera needs |
+| **Windows**, **Linux** | Supported: BC1 / BC7 (PC graphics cards) or ASTC (ARM GPUs, if the driver has it) |
+| **macOS** (Apple Silicon, Intel) | Uses whichever of BC1, BC7 and ASTC the OpenGL driver offers; macOS's own OpenGL has no BC7 |
+| **Android launchers** (Pojav and similar) | Works with the pure-Java encoder: ASTC, where the OpenGL layer exposes it. Atlases the Java encoder cannot do well stay uncompressed |
 | **Servers** |  Not needed: it runs on your computer only, and you can join any server with it |
 
 | Minecraft | Tessera file |

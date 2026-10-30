@@ -30,7 +30,7 @@
 
 ## What it does
 
-- Keeps the game's textures in a smaller format on your graphics card. The game looks the same: BC1 for opaque textures, BC7 for textures with transparency.
+- Keeps the game's textures in a smaller format on your graphics card. The game looks the same. It picks the format your GPU takes: BC1 and BC7 on PC graphics cards, ASTC on ARM GPUs (Apple Silicon, Android).
 - Animated textures stay uncompressed (RGBA8888), as vanilla draws them.
 - Works in the background, so loading textures does not freeze the game.
 - Leaves shaders and other visual mods working.
@@ -41,7 +41,7 @@ Tessera needs [Celeris](https://github.com/bichal/Celeris) too. Put both in your
 ## Requirements
 
 - Minecraft 1.21 to 1.21.11 and 26.1 to 26.3, NeoForge or Fabric (with Fabric API), on your own computer (client only).
-- Windows or Linux. macOS is not supported.
+- Windows, Linux, or macOS on Apple Silicon. On Android launchers (Pojav and similar) it works without native code, with a simpler encoder. What gets compressed depends on the formats your graphics driver offers: Tessera checks at startup and leaves everything as vanilla if it offers none.
 
 ## Learn more
 
@@ -61,6 +61,7 @@ the developer guide.
 | Source code | [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html), see [`LICENSE-AGPL`](./LICENSE-AGPL) |
 | Artwork, branding and documentation | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), see [`LICENSE-CC`](./LICENSE-CC) |
 | bc7enc_rdo (bundled) | [MIT OR Unlicense](https://github.com/richgel999/bc7enc_rdo), see [`NOTICE`](./NOTICE) |
+| ASTC Encoder (astcenc) (bundled) | [Apache-2.0](https://github.com/ARM-software/astc-encoder), see [`NOTICE`](./NOTICE) |
 
 **Source code:** you may study, modify and redistribute it under the AGPL; if you run a modified version as a network service, its source must be available to that service's users.
 
@@ -74,5 +75,5 @@ See [`LICENSE`](./LICENSE) for the full summary.
 ---
 
 <!-- bichal:footer -->
-Code: **AGPL-3.0** | Art: **CC BY-NC-SA 4.0** | Made by **Bichal**
+Code: **AGPL-3.0** · Art: **CC BY-NC-SA 4.0** · Made by **Bichal**
 <!-- /bichal:footer -->
