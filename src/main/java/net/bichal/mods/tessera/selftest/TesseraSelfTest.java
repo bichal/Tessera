@@ -89,6 +89,8 @@ public final class TesseraSelfTest {
     private static final String WORLD_SHOT_COMMANDS = System.getProperty("tessera.selftest.world");
     private static final boolean WORLD_SHOT = WORLD_SHOT_COMMANDS != null;
     private static final String WORLD_NAME = "tessera-shot";
+    /** -Dtessera.selftest.dump=<dir>: writes each compressed atlas as raw RGBA, original and decoded, for comparisons. */
+    private static final String DUMP_DIR = System.getProperty("tessera.selftest.dump");
     private static int worldJoinedTick = -1;
     private static List<String> worldCommands;
 
@@ -302,10 +304,43 @@ public final class TesseraSelfTest {
                     name, expectedFormat, width, height, levels, maxLevel, staticPsnr, staticError.count,
                     staticOk ? "" : " (below " + minStatic + ")"));
             ok &= staticOk;
+            if (DUMP_DIR != null) {
+                dump(name, expectedFormat, atlas, pixels, width, height);
+            }
         } finally {
             MemoryUtil.memFree(pixels);
         }
         return ok;
+    }
+
+    /** The sprites' own pixels and what the driver decodes, side by side as raw RGBA files (see DUMP_DIR). */
+    private static void dump(String name, CompressionPipeline.Target format, TextureAtlas atlas, ByteBuffer decoded,
+                             int width, int height) {
+        ByteBuffer original = MemoryUtil.memCalloc(width * height * 4).order(ByteOrder.LITTLE_ENDIAN);
+        try {
+            for (TextureAtlasSprite sprite : TesseraCompat.textures(atlas)) {
+                int padding = TesseraCompat.padding(sprite);
+                for (int y = 0; y < sprite.contents().height(); y++) {
+                    for (int x = 0; x < sprite.contents().width(); x++) {
+                        original.putInt(((sprite.getY() + padding + y) * width + sprite.getX() + padding + x) * 4,
+                                TesseraCompat.spriteAbgr(sprite, 0, x, y));
+                    }
+                }
+            }
+            String safe = name.replaceAll("[^A-Za-z0-9._-]", "_");
+            Path dir = Path.of(DUMP_DIR);
+            Files.createDirectories(dir);
+            byte[] bytes = new byte[width * height * 4];
+            original.get(0, bytes);
+            Files.write(dir.resolve(safe + ".orig.rgba"), bytes);
+            decoded.get(0, bytes);
+            Files.write(dir.resolve(safe + ".dec.rgba"), bytes);
+            Files.writeString(dir.resolve(safe + ".txt"), width + " " + height + " " + format + "\n");
+        } catch (IOException e) {
+            LOGGER.warn("Could not dump {}", name, e);
+        } finally {
+            MemoryUtil.memFree(original);
+        }
     }
 
     /** Level 0 of the bound texture as RGBA8, decoded by the driver. */
