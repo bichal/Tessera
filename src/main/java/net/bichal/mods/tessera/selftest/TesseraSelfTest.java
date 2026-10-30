@@ -146,19 +146,27 @@ public final class TesseraSelfTest {
     /** Fabric: -Dtessera.selftest.screen=true opens the settings screen, marks the game directory, then closes it. */
     private static final boolean SCREEN_PREVIEW = Boolean.getBoolean("tessera.selftest.screen");
 
+    //? if fabric
+    /*private static net.bichal.mods.tessera.client.TesseraConfigScreen settingsScreen;*/
+
     private static void screenPreviewTick() {
         //? if fabric {
         /*ticks++;
         Minecraft mc = Minecraft.getInstance();
         try {
+            var game = mc.gameDirectory.toPath();
             if (ticks == 400) {
-                mc.setScreen(new net.bichal.mods.tessera.client.TesseraConfigScreen(mc.screen));
+                settingsScreen = new net.bichal.mods.tessera.client.TesseraConfigScreen(mc.screen);
+                mc.setScreen(settingsScreen);
             } else if (ticks == 460) {
-                Files.writeString(mc.gameDirectory.toPath().resolve("tessera-screen-open"), "open");
+                Files.writeString(game.resolve("tessera-screen-open"), "open");
+            } else if (ticks == 520) {
+                mc.setScreen(settingsScreen.sectionScreen(0));
+            } else if (ticks == 580) {
+                Files.writeString(game.resolve("tessera-screen-section"), "section");
             } else if (ticks == 900) {
-                Screen open = mc.screen;
-                open.onClose(); // writes the settings and returns to the previous screen
-                Files.writeString(mc.gameDirectory.toPath().resolve("tessera-screen-closed"), "closed");
+                settingsScreen.onClose(); // writes the settings and returns to the previous screen
+                Files.writeString(game.resolve("tessera-screen-closed"), "closed");
             } else if (ticks == 960) {
                 mc.stop();
             }

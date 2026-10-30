@@ -52,6 +52,12 @@ public class EnUsLanguageProvider extends LanguageProvider {
         addConfigOption("showExtendedDebugBreakdown", "Show Extended Atlas Breakdown",
                 "Displays the expanded breakdown by atlas and by bucket on the F3 Debug Screen.");
 
+        // Settings screen buttons (Fabric)
+        add("tessera.configuration.undo", "Undo changes");
+        add("tessera.configuration.reset", "Reset to default");
+        add("tessera.configuration.undoAll", "Undo changes");
+        add("tessera.configuration.resetAll", "Reset to defaults");
+
         // Keybinds & Debug Messages
         add("key.categories.tessera", "Tessera");
         add("key.tessera.toggle_extended_debug", "Toggle Advanced Atlas Info");

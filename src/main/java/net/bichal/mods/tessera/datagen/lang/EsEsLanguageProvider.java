@@ -53,6 +53,12 @@ public class EsEsLanguageProvider extends LanguageProvider {
                 "Muestra el desglose detallado per-atlas y per-bucket en la pantalla de depuración F3.");
 
         // Teclas y mensajes Debug
+        // Botones de la pantalla de ajustes (Fabric)
+        add("tessera.configuration.undo", "Deshacer cambios");
+        add("tessera.configuration.reset", "Restablecer valor por defecto");
+        add("tessera.configuration.undoAll", "Deshacer cambios");
+        add("tessera.configuration.resetAll", "Restablecer valores");
+
         add("key.categories.tessera", "Tessera");
         add("key.tessera.toggle_extended_debug", "Alternar Información Avanzada de Atlas");
         add("tessera.debug.advanced_atlas_info", "Info avanzada de atlas: %s");
