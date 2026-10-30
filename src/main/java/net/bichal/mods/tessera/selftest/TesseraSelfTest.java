@@ -9,8 +9,10 @@ import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+//? if neoforge {
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
+//?}
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL15;
@@ -67,6 +69,9 @@ public final class TesseraSelfTest {
     }
 
     public static void register() {
+        //? if fabric {
+        /*net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> tick());
+        *///?} else
         NeoForge.EVENT_BUS.addListener(ClientTickEvent.Post.class, e -> tick());
     }
 
@@ -136,7 +141,7 @@ public final class TesseraSelfTest {
             AtlasCache.CompressedFormat format = entry.getValue() == CompressionPipeline.Target.BC7
                     ? AtlasCache.CompressedFormat.BC7 : AtlasCache.CompressedFormat.BC1;
             ok &= checkAtlas(atlas.location().toString(), atlas, format, out);
-            anyAnimated |= atlas.getTextures().values().stream()
+            anyAnimated |= TesseraCompat.textures(atlas).stream()
                     .anyMatch(sprite -> TesseraCompat.isAnimated(sprite.contents()));
         }
         // Some animations are slow (a GUI icon may hold a frame for seconds), but
@@ -186,7 +191,7 @@ public final class TesseraSelfTest {
             // Static sprites: the decoded atlas against the sprites' own pixels.
             List<TextureAtlasSprite> animated = new ArrayList<>();
             Error staticError = new Error();
-            for (TextureAtlasSprite sprite : atlas.getTextures().values()) {
+            for (TextureAtlasSprite sprite : TesseraCompat.textures(atlas)) {
                 if (TesseraCompat.isAnimated(sprite.contents())) {
                     animated.add(sprite);
                 } else {

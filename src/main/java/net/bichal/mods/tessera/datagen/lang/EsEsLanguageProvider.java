@@ -1,3 +1,4 @@
+//? if neoforge {
 package net.bichal.mods.tessera.datagen.lang;
 
 import net.minecraft.data.PackOutput;
@@ -63,3 +64,4 @@ public class EsEsLanguageProvider extends LanguageProvider {
         add("debug.state.shown", "mostrado");
     }
 }
+//?}

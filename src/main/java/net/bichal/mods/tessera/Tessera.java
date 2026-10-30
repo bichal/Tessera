@@ -1,14 +1,18 @@
 package net.bichal.mods.tessera;
 
 import net.bichal.mods.tessera.atlas.AtlasCompressionDriver;
+import net.bichal.mods.tessera.compat.ModCompat;
 import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
 import net.bichal.mods.tessera.compress.Bc7GpuSupport;
 import net.bichal.mods.tessera.compress.backend.TesseraRuntime;
 import net.bichal.mods.tessera.config.Config;
-import net.bichal.mods.tessera.datagen.DataGenerators;
 import net.bichal.mods.tessera.gui.KnownEngineBugLogFilter;
 import net.bichal.mods.tessera.selftest.TesseraSelfTest;
 import net.bichal.mods.tessera.vram.VramBudgetEngine;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+//? if neoforge {
+import net.bichal.mods.tessera.datagen.DataGenerators;
 import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -22,15 +26,56 @@ import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 *///?}
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+//?}
 
+//? if neoforge
 @Mod(value = Tessera.MOD_ID, dist = Dist.CLIENT)
 public final class Tessera {
 
     public static final String MOD_ID = "tessera";
     private static final Logger LOGGER = LoggerFactory.getLogger("Tessera");
 
+    /**
+     * Startup shared by both loaders: log filter, compression backend and the self-test hook.
+     */
+    public static void init() {
+        // Installed at mod construction rather than later: it only configures Log4j2 and
+        // touches no GL state, and should run before the very first resource reload (and so
+        // the first atlas stitch), which is when MC-293754's log spam starts. See
+        // KnownEngineBugLogFilter's own class doc for what this suppresses.
+        KnownEngineBugLogFilter.install();
+
+        // Select the compression backend (native JNI or pure Java) up front,
+        // so the choice is logged at startup rather than on the first reload.
+        TesseraRuntime.backend();
+
+        ModCompat.isKerriaLoaded();
+
+        if (TesseraSelfTest.ENABLED) {
+            TesseraSelfTest.register();
+        }
+    }
+
+    /**
+     * Fills the GL capability caches. Runs on the render thread: GL.getCapabilities() only
+     * works on a thread with a current context, and these checks are later read from
+     * background compression threads that have none.
+     */
+    public static void warmUpGl() {
+        boolean bc7Supported = Bc7GpuSupport.isSupported();
+        Bc1TextureFormatSupport.warmUp();
+        VramBudgetEngine.warmUp();
+
+        if (Bc7GpuSupport.isKnown() && !bc7Supported) {
+            LOGGER.warn("This GPU/driver does not expose GL_COMPRESSED_RGBA_BPTC_UNORM (BC7); "
+                    + "atlases stay uncompressed RGBA8.");
+        }
+        if (Bc1TextureFormatSupport.isKnown() && !Bc1TextureFormatSupport.isSupported()) {
+            LOGGER.warn("This GPU/driver does not expose GL_EXT_texture_compression_s3tc (BC1).");
+        }
+    }
+
+    //? if neoforge {
     /**
      * Snapshot of the reload-sensitive settings as of the last time they
      * were known-applied (mod construction, or the last
@@ -50,20 +95,7 @@ public final class Tessera {
                 ConfigurationScreen::new
         );
 
-        // Installed here (mod construction) rather than in onClientSetup's
-        // enqueueWork below: unlike the GL-capability warmup calls, this
-        // only configures Log4j2 logging infrastructure and touches no GL
-        // state, so it needs no render-thread/GL-context timing and should
-        // run as early as possible -- before the very first resource
-        // reload (and therefore the very first atlas stitch) can happen,
-        // since that is exactly when MC-293754's spam starts. See
-        // KnownEngineBugLogFilter's own class doc for what this suppresses
-        // and why it's scoped as narrowly as it is.
-        KnownEngineBugLogFilter.install();
-
-        // Select the compression backend (native JNI or pure Java) up front,
-        // so the choice is logged at startup rather than on the first reload.
-        TesseraRuntime.backend();
+        init();
 
         modEventBus.addListener(this::onConfigLoading);
 
@@ -79,29 +111,10 @@ public final class Tessera {
 
         DataGenerators.register(modEventBus);
 
-        if (TesseraSelfTest.ENABLED) {
-            TesseraSelfTest.register();
-        }
     }
 
     private void onClientSetup(FMLClientSetupEvent event) {
-        event.enqueueWork(() -> {
-            // GL capability caches are filled here, on the render thread:
-            // GL.getCapabilities() only works on a thread with a current
-            // context, and these checks are later read from background
-            // compression threads that have none.
-            boolean bc7Supported = Bc7GpuSupport.isSupported();
-            Bc1TextureFormatSupport.warmUp();
-            VramBudgetEngine.warmUp();
-
-            if (Bc7GpuSupport.isKnown() && !bc7Supported) {
-                LOGGER.warn("This GPU/driver does not expose GL_COMPRESSED_RGBA_BPTC_UNORM (BC7); "
-                        + "atlases stay uncompressed RGBA8.");
-            }
-            if (Bc1TextureFormatSupport.isKnown() && !Bc1TextureFormatSupport.isSupported()) {
-                LOGGER.warn("This GPU/driver does not expose GL_EXT_texture_compression_s3tc (BC1).");
-            }
-        });
+        event.enqueueWork(Tessera::warmUpGl);
     }
 
     private void onConfigLoading(ModConfigEvent.Loading event) {
@@ -158,4 +171,5 @@ public final class Tessera {
         // calling reloadResourcePacks() directly here.
         Minecraft.getInstance().execute(() -> Minecraft.getInstance().reloadResourcePacks());
     }
+    //?}
 }

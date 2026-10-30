@@ -121,6 +121,11 @@ public final class TesseraCompat {
     }
     *///?}
 
+    /** Every sprite of an atlas, by name. */
+    public static java.util.Collection<TextureAtlasSprite> textures(TextureAtlas atlas) {
+        return ((net.bichal.mods.tessera.mixin.TextureAtlasAccessor) atlas).tessera$texturesByName().values();
+    }
+
     /** A pixel as ABGR (R in the low byte: R, G, B, A when written little-endian). */
     public static int abgr(NativeImage image, int x, int y) {
         //? >=1.21.10 {
@@ -137,6 +142,14 @@ public final class TesseraCompat {
 
     /** A sprite pixel of an animation frame, as ABGR. */
     public static int spriteAbgr(TextureAtlasSprite sprite, int frame, int x, int y) {
+        //? if fabric {
+        /*// NeoForge adds TextureAtlasSprite.getPixelRGBA; here the frame is located in the strip
+        // of all frames (byMipLevel[0]), laid out in rows of strip width / frame width.
+        NativeImage strip = sprite.contents().byMipLevel[0];
+        int columns = Math.max(1, strip.getWidth() / sprite.contents().width());
+        return abgr(strip, x + frame % columns * sprite.contents().width(),
+                y + frame / columns * sprite.contents().height());
+        *///?} else {
         // Despite the name, getPixelRGBA returns ARGB from 1.21.2 on.
         //? >=1.21.10 {
         /*try {
@@ -147,6 +160,7 @@ public final class TesseraCompat {
         *///?} else {
         int pixel = sprite.getPixelRGBA(frame, x, y);
         return ARGB_PIXELS ? argbToAbgr(pixel) : pixel;
+        //?}
         //?}
     }
 
@@ -179,7 +193,7 @@ public final class TesseraCompat {
     }
     //?}
 
-    //? >=1.21.10 {
+    //? if neoforge && >=1.21.10 {
     /*// getPixelRGBA(frame, x, y) (ARGB despite the name), renamed getPixelARGB in 26.3.
     private static final java.lang.invoke.MethodHandle SPRITE_PIXEL = spritePixel();
 

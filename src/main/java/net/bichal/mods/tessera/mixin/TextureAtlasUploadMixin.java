@@ -16,7 +16,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.SpriteLoader;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
-import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
@@ -166,7 +165,7 @@ public abstract class TextureAtlasUploadMixin {
         AtlasCache.CompressedFormat defaultFormat = atlasPixels.opaque() && Bc1TextureFormatSupport.isSupported()
                 ? AtlasCache.CompressedFormat.BC1
                 : AtlasCache.CompressedFormat.BC7;
-        AtlasCompressEvent.Pre pre = NeoForge.EVENT_BUS.post(
+        AtlasCompressEvent.Pre pre = AtlasCompressEvent.post(
                 new AtlasCompressEvent.Pre(atlasLocation, defaultFormat));
         if (pre.isCanceled()) {
             return;
@@ -229,7 +228,7 @@ public abstract class TextureAtlasUploadMixin {
                                 for (AtlasCompressionDriver.CompressedLevel level : compressed.levels()) {
                                     uncompressed += (long) level.width() * level.height() * 4;
                                 }
-                                NeoForge.EVENT_BUS.post(new AtlasCompressEvent.Post(
+                                AtlasCompressEvent.post(new AtlasCompressEvent.Post(
                                         atlasLocation, format, uncompressed - resident, resident));
                             }
                         } catch (Throwable t) {

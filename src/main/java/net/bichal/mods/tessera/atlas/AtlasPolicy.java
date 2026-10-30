@@ -33,6 +33,8 @@ public final class AtlasPolicy {
      * which owns the animation upload path.
      */
     public static boolean mayCompressAnimated() {
-        return Config.get(Config.COMPRESS_ANIMATED_ATLASES) && !ModCompat.isKerriaLoaded();
+        // -Dtessera.compressAnimated=true: the client self-test checks the BC animation path.
+        boolean wanted = Boolean.getBoolean("tessera.compressAnimated") || Config.get(Config.COMPRESS_ANIMATED_ATLASES);
+        return wanted && !ModCompat.isKerriaLoaded();
     }
 }
