@@ -5,6 +5,7 @@ import net.bichal.mods.tessera.Tessera;
 import net.bichal.mods.tessera.config.Config;
 import net.bichal.mods.tessera.config.Setting;
 import net.minecraft.client.gui.components.AbstractSliderButton;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
@@ -14,14 +15,14 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 
-import java.util.function.IntConsumer;
-import java.util.function.IntSupplier;
+import java.util.List;
+import java.util.function.Consumer;
 
 /^*
- * Tessera's settings on Fabric, opened from Mod Menu ({@code TesseraModMenu}). Built from vanilla
- * widgets only. Values are written when the screen closes; a change to any setting that only
- * applies when atlases are compressed again reloads resources. NeoForge uses its own generated
- * screen for the same settings instead.
+ * Tessera's settings on Fabric, opened from Mod Menu ({@code TesseraModMenu}), laid out like NeoForge's
+ * generated screen: this one lists the sections, each section is a screen with its options, and every
+ * option has undo and reset buttons. Vanilla widgets only. Values are written when this screen closes;
+ * a change to any setting that applies at compression time then reloads resources.
  ^/
 public final class TesseraConfigScreen extends Screen {
 
@@ -31,13 +32,20 @@ public final class TesseraConfigScreen extends Screen {
     private final Screen parent;
     private final Config.ReloadSensitiveSnapshot before = Config.ReloadSensitiveSnapshot.capture();
 
-    private int quality = Config.get(Config.COMPRESSION_QUALITY);
-    private int dedup = Config.get(Config.DEDUP_SIMILARITY_THRESHOLD);
-    private int vramBudget = Config.get(Config.VRAM_BUDGET_TARGET_MB);
-    private boolean disableNative = Config.get(Config.DISABLE_NATIVE_COMPRESSION);
-    private boolean compressAnimated = Config.get(Config.COMPRESS_ANIMATED_ATLASES);
-    private boolean extendedDebug = Config.get(Config.SHOW_EXTENDED_DEBUG_BREAKDOWN);
-    private String cacheDirectory = Config.get(Config.CACHE_DIRECTORY);
+    private final Option<Integer> quality = new IntOption("compressionQuality", Config.COMPRESSION_QUALITY, 0, 7, 1);
+    private final Option<Boolean> disableNative = new BoolOption("disableNativeCompression", Config.DISABLE_NATIVE_COMPRESSION);
+    private final Option<Boolean> compressAnimated = new BoolOption("compressAnimatedAtlases", Config.COMPRESS_ANIMATED_ATLASES);
+    private final Option<Integer> dedup = new IntOption("dedupSimilarityThreshold", Config.DEDUP_SIMILARITY_THRESHOLD, 0, 64, 1);
+    private final Option<Integer> vramBudget = new IntOption("vramBudgetTargetMb", Config.VRAM_BUDGET_TARGET_MB, 256, 16384, 64);
+    private final Option<String> cacheDirectory = new TextOption("cacheDirectory", Config.CACHE_DIRECTORY);
+    private final Option<Boolean> extendedDebug = new BoolOption("showExtendedDebugBreakdown", Config.SHOW_EXTENDED_DEBUG_BREAKDOWN);
+
+    private final List<Section> sections = List.of(
+            new Section("compression", List.of(quality, disableNative, compressAnimated)),
+            new Section("deduplication", List.of(dedup)),
+            new Section("vramBudget", List.of(vramBudget)),
+            new Section("cache", List.of(cacheDirectory)),
+            new Section("debug", List.of(extendedDebug)));
 
     public TesseraConfigScreen(Screen parent) {
         super(Component.translatable("tessera.configuration.title"));
@@ -47,101 +55,223 @@ public final class TesseraConfigScreen extends Screen {
     @Override
     protected void init() {
         int x = this.width / 2 - WIDTH / 2;
-        int rows = 8;
-        int y = Math.max(34, (this.height - rows * ROW - 28) / 2 + 10);
+        int y = Math.max(34, (this.height - (sections.size() + 1) * ROW - 12) / 2 + 12);
         addRenderableWidget(new StringWidget(x, y - 22, WIDTH, 9, this.title, this.font));
-
-        addRenderableWidget(new IntSlider(x, y, "compressionQuality", 0, 7, 1, () -> quality, v -> quality = v));
-        y += ROW;
-        addRenderableWidget(toggle(x, y, "disableNativeCompression", disableNative, v -> disableNative = v));
-        y += ROW;
-        addRenderableWidget(toggle(x, y, "compressAnimatedAtlases", compressAnimated, v -> compressAnimated = v));
-        y += ROW;
-        addRenderableWidget(new IntSlider(x, y, "dedupSimilarityThreshold", 0, 64, 1, () -> dedup, v -> dedup = v));
-        y += ROW;
-        addRenderableWidget(new IntSlider(x, y, "vramBudgetTargetMb", 256, 16384, 64, () -> vramBudget, v -> vramBudget = v));
-        y += ROW;
-
-        EditBox directory = new EditBox(this.font, x, y, WIDTH, 20, label("cacheDirectory"));
-        directory.setMaxLength(128);
-        directory.setValue(cacheDirectory);
-        directory.setResponder(value -> cacheDirectory = value);
-        directory.setTooltip(Tooltip.create(Component.translatable("tessera.configuration.cacheDirectory.tooltip")));
-        addRenderableWidget(directory);
-        y += ROW;
-
-        addRenderableWidget(toggle(x, y, "showExtendedDebugBreakdown", extendedDebug, v -> extendedDebug = v));
-        y += ROW + 4;
-
+        for (Section section : sections) {
+            addRenderableWidget(Button.builder(text(section.key + ".button"), button -> this.minecraft.setScreen(new SectionScreen(this, section)))
+                    .bounds(x, y, WIDTH, 20)
+                    .tooltip(Tooltip.create(text(section.key + ".tooltip")))
+                    .build());
+            y += ROW;
+        }
         addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> onClose())
-                .bounds(x, y, WIDTH, 20)
+                .bounds(x, y + 12, WIDTH, 20)
                 .build());
     }
 
     @Override
     public void onClose() {
-        commit(Config.COMPRESSION_QUALITY, quality);
-        commit(Config.DISABLE_NATIVE_COMPRESSION, disableNative);
-        commit(Config.COMPRESS_ANIMATED_ATLASES, compressAnimated);
-        commit(Config.DEDUP_SIMILARITY_THRESHOLD, dedup);
-        commit(Config.VRAM_BUDGET_TARGET_MB, vramBudget);
-        // An empty or blank name would put the cache in the game directory itself.
-        commit(Config.CACHE_DIRECTORY, cacheDirectory.isBlank() ? Config.CACHE_DIRECTORY.getDefault() : cacheDirectory.trim());
-        commit(Config.SHOW_EXTENDED_DEBUG_BREAKDOWN, extendedDebug);
+        for (Section section : sections) {
+            for (Option<?> option : section.options) {
+                option.commit();
+            }
+        }
         Tessera.applySettingsChange(before, Config.ReloadSensitiveSnapshot.capture());
         if (this.minecraft != null) {
             this.minecraft.setScreen(this.parent);
         }
     }
 
-    private static <T> void commit(Setting<T> setting, T value) {
-        if (!value.equals(setting.get())) {
-            setting.set(value);
-            setting.save();
-        }
+    // The screen of one section, to open it without going through the section buttons (self-test screenshots).
+    public Screen sectionScreen(int index) {
+        return new SectionScreen(this, sections.get(index));
     }
 
-    private static Component label(String key) {
+    private static Component text(String key) {
         return Component.translatable("tessera.configuration." + key);
     }
 
-    private static CycleButton<Boolean> toggle(int x, int y, String key, boolean initial, java.util.function.Consumer<Boolean> apply) {
-        return CycleButton.onOffBuilder(initial)
-                .withTooltip(value -> Tooltip.create(Component.translatable("tessera.configuration." + key + ".tooltip")))
-                .create(x, y, WIDTH, 20, label(key), (button, value) -> apply.accept(value));
+    // A group of options, shown on its own screen.
+    private record Section(String key, List<Option<?>> options) {
     }
 
-    /^* A slider over {@code min..max} in steps of {@code step}, labelled "name: value". ^/
-    private static final class IntSlider extends AbstractSliderButton {
+    // One section's screen: its options, each with undo and reset, and the same for the whole section.
+    private static final class SectionScreen extends Screen {
 
-        private final String key;
+        private final Screen back;
+        private final Section section;
+
+        SectionScreen(Screen back, Section section) {
+            super(text(section.key));
+            this.back = back;
+            this.section = section;
+        }
+
+        @Override
+        protected void init() {
+            int x = this.width / 2 - WIDTH / 2;
+            int controlWidth = WIDTH - 2 * 22;
+            int y = Math.max(34, (this.height - (section.options.size() + 1) * ROW - 40) / 2 + 12);
+            addRenderableWidget(new StringWidget(x, y - 22, WIDTH, 9, this.title, this.font));
+            for (Option<?> option : section.options) {
+                addRenderableWidget(option.control(this.font, x, y, controlWidth, () -> { }));
+                Button undo = Button.builder(Component.literal("↶"), button -> { option.undo(); rebuild(); })
+                        .bounds(x + controlWidth + 2, y, 20, 20)
+                        .tooltip(Tooltip.create(text("undo")))
+                        .build();
+                undo.active = option.changed();
+                addRenderableWidget(undo);
+                Button reset = Button.builder(Component.literal("↺"), button -> { option.reset(); rebuild(); })
+                        .bounds(x + controlWidth + 24, y, 20, 20)
+                        .tooltip(Tooltip.create(text("reset")))
+                        .build();
+                reset.active = !option.isDefault();
+                addRenderableWidget(reset);
+                y += ROW;
+            }
+            y += 6;
+            int half = (WIDTH - 4) / 2;
+            Button undoAll = Button.builder(text("undoAll"), button -> { section.options.forEach(Option::undo); rebuild(); })
+                    .bounds(x, y, half, 20)
+                    .build();
+            undoAll.active = section.options.stream().anyMatch(Option::changed);
+            addRenderableWidget(undoAll);
+            Button resetAll = Button.builder(text("resetAll"), button -> { section.options.forEach(Option::reset); rebuild(); })
+                    .bounds(x + half + 4, y, half, 20)
+                    .build();
+            resetAll.active = section.options.stream().anyMatch(option -> !option.isDefault());
+            addRenderableWidget(resetAll);
+            addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> onClose())
+                    .bounds(x, y + ROW, WIDTH, 20)
+                    .build());
+        }
+
+        // The controls show the option's value as it is now: build them again.
+        private void rebuild() {
+            clearWidgets();
+            init();
+        }
+
+        @Override
+        public void onClose() {
+            if (this.minecraft != null) {
+                this.minecraft.setScreen(back);
+            }
+        }
+    }
+
+    // An edited value of one setting: what is shown, what it was when the screen opened, and its default.
+    private abstract static class Option<T> {
+
+        final String key;
+        final Setting<T> setting;
+        final T original;
+        T value;
+
+        Option(String key, Setting<T> setting) {
+            this.key = key;
+            this.setting = setting;
+            this.original = Config.get(setting);
+            this.value = original;
+        }
+
+        abstract AbstractWidget control(net.minecraft.client.gui.Font font, int x, int y, int width, Runnable changed);
+
+        boolean changed() {
+            return !value.equals(original);
+        }
+
+        boolean isDefault() {
+            return value.equals(setting.getDefault());
+        }
+
+        void undo() {
+            value = original;
+        }
+
+        void reset() {
+            value = setting.getDefault();
+        }
+
+        void commit() {
+            if (!value.equals(setting.get())) {
+                setting.set(value);
+                setting.save();
+            }
+        }
+
+        Tooltip tooltip() {
+            return Tooltip.create(text(key + ".tooltip"));
+        }
+    }
+
+    private static final class BoolOption extends Option<Boolean> {
+
+        BoolOption(String key, Setting<Boolean> setting) {
+            super(key, setting);
+        }
+
+        @Override
+        AbstractWidget control(net.minecraft.client.gui.Font font, int x, int y, int width, Runnable changed) {
+            return CycleButton.onOffBuilder(value)
+                    .withTooltip(v -> tooltip())
+                    .create(x, y, width, 20, text(key), (button, v) -> value = v);
+        }
+    }
+
+    // A slider over min..max in steps of step, labelled "name: value".
+    private static final class IntOption extends Option<Integer> {
+
         private final int min;
         private final int max;
         private final int step;
-        private final IntSupplier current;
-        private final IntConsumer apply;
 
-        IntSlider(int x, int y, String key, int min, int max, int step, IntSupplier current, IntConsumer apply) {
-            super(x, y, WIDTH, 20, Component.empty(), (double) (current.getAsInt() - min) / (max - min));
-            this.key = key;
+        IntOption(String key, Setting<Integer> setting, int min, int max, int step) {
+            super(key, setting);
             this.min = min;
             this.max = max;
             this.step = step;
-            this.current = current;
-            this.apply = apply;
-            setTooltip(Tooltip.create(Component.translatable("tessera.configuration." + key + ".tooltip")));
-            updateMessage();
         }
 
         @Override
-        protected void updateMessage() {
-            setMessage(Component.translatable("options.generic_value", label(key), Integer.toString(current.getAsInt())));
+        AbstractWidget control(net.minecraft.client.gui.Font font, int x, int y, int width, Runnable changed) {
+            AbstractSliderButton slider = new AbstractSliderButton(x, y, width, 20, Component.empty(),
+                    (double) (value - min) / (max - min)) {
+                {
+                    setTooltip(tooltip());
+                    updateMessage();
+                }
+
+                @Override
+                protected void updateMessage() {
+                    setMessage(Component.translatable("options.generic_value", text(key), Integer.toString(IntOption.this.value)));
+                }
+
+                @Override
+                protected void applyValue() {
+                    int stepped = min + (int) Math.round(this.value * (max - min) / step) * step;
+                    IntOption.this.value = Math.min(max, Math.max(min, stepped));
+                }
+            };
+            return slider;
+        }
+    }
+
+    private static final class TextOption extends Option<String> {
+
+        TextOption(String key, Setting<String> setting) {
+            super(key, setting);
         }
 
         @Override
-        protected void applyValue() {
-            int stepped = min + (int) Math.round(this.value * (max - min) / step) * step;
-            apply.accept(Math.min(max, Math.max(min, stepped)));
+        AbstractWidget control(net.minecraft.client.gui.Font font, int x, int y, int width, Runnable changed) {
+            EditBox box = new EditBox(font, x, y, width, 20, text(key));
+            box.setMaxLength(128);
+            box.setValue(value);
+            // An empty name would put the cache in the game directory itself.
+            box.setResponder(v -> value = v.isBlank() ? setting.getDefault() : v.trim());
+            box.setTooltip(tooltip());
+            return box;
         }
     }
 }
