@@ -54,13 +54,14 @@ class CompressionConsumptionTest {
 
     private static Measured measure(boolean alpha, boolean opaque) {
         ByteBuffer rgba = atlas(alpha);
+        CompressionPipeline.Target target = alpha ? CompressionPipeline.Target.BC7 : CompressionPipeline.Target.BC1;
         // Warm-up: class loading and JIT must not count as the encoder's own allocation.
-        CompressionPipeline.compressBlocking("warmup", rgba.duplicate(), SIZE, SIZE, alpha, QUALITY);
+        CompressionPipeline.compressBlocking("warmup", rgba.duplicate(), SIZE, SIZE, target, QUALITY, 0);
         var threads = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
         long tid = Thread.currentThread().threadId();
         long before = threads.getThreadAllocatedBytes(tid);
         long start = System.nanoTime();
-        ByteBuffer blocks = CompressionPipeline.compressBlocking("test", rgba.duplicate(), SIZE, SIZE, alpha, QUALITY);
+        ByteBuffer blocks = CompressionPipeline.compressBlocking("test", rgba.duplicate(), SIZE, SIZE, target, QUALITY, 0);
         long millis = (System.nanoTime() - start) / 1_000_000;
         long allocated = threads.getThreadAllocatedBytes(tid) - before;
         assertNotNull(blocks);

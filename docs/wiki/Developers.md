@@ -37,7 +37,7 @@ Celeris is resolved from your local Maven repository (if you `publishToMavenLoca
 The JNI library is built from `native/` (CMake) against the vendored bc7enc_rdo sources:
 
 ```bash
-cd native/vendor/bc7enc_rdo && ./fetch.sh && cd ../../..   # vendor the pinned upstream sources
+native/vendor/fetch.sh   # vendor the pinned upstream sources (bc7enc_rdo and astc-encoder)
 
 # Windows x86_64 (Visual Studio + CMake)
 cmake -S native -B build-native/windows -A x64
@@ -51,6 +51,16 @@ JAVA_HOME=<path to a JDK> ./native/build-linux.sh
 The binaries are not committed. CI builds them from `native/` on every platform's runner and bundles them into the
 released jars. Locally, a build without them uses the Java encoder.
 
+### Trying other formats
+
+`-Dtessera.formats=astc` (or `bc`) limits Tessera to one family of formats, to see an ARM GPU's path on a desktop one;
+`-Dtessera.compatMode=true` skips the native library. The self-test takes them as Gradle properties:
+
+```bash
+./gradlew :1.21.1:selftest -PselftestFormats=astc            # ASTC through the native encoder
+./gradlew :1.21.1:selftest -PselftestFormats=astc -PselftestCompat=true   # ASTC through the Java encoder
+```
+
 ### Releases and descriptions
 
 This README is also the description on Modrinth and CurseForge (everything outside `publish:off` blocks). Changelogs
@@ -63,7 +73,9 @@ docs/                   # changelogs/, media/ (see docs/README.md)
 native/
   CMakeLists.txt        # JNI library build
   build-linux.sh        # Linux x86_64 + aarch64 build in Docker
+  astc_bridge.*         # the astc-encoder glue
   vendor/bc7enc_rdo/    # tessera_bridge.cpp + fetch.sh (upstream sources are fetched, not committed)
+  vendor/astcenc/       # fetch.sh for ARM's astc-encoder
 src/main/java/net/bichal/mods/tessera/
   api/                  # AtlasCompressEvent
   atlas/                # Atlas assembly, mip chains, compression/upload driver

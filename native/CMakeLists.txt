@@ -36,12 +36,47 @@ foreach(required rdo_bc_encoder.h bc7enc.h ert.h rgbcx.h utils.h bc7decomp.h dds
     endif()
 endforeach()
 
+# ARM's astc-encoder is its own static library: the bridge below is built with -ffast-math, which
+# astcenc must not be (its output is meant to be identical on every instruction set).
+set(ASTC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/astcenc)
+if(NOT EXISTS ${ASTC_DIR}/astcenc.h)
+    message(FATAL_ERROR
+        "astc-encoder sources missing in ${ASTC_DIR}. Run:\n    native/vendor/fetch.sh\nand re-run the build.")
+endif()
+file(GLOB ASTC_SOURCES ${ASTC_DIR}/astcenc_*.cpp)
+add_library(astcenc STATIC ${ASTC_SOURCES})
+target_include_directories(astcenc PUBLIC ${ASTC_DIR})
+set_target_properties(astcenc PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# The instruction set follows the target: SSE4.1 + POPCNT on x86_64 (the floor of the whole bridge),
+# NEON on arm64 (Apple Silicon, Android, Linux AArch64), plain C++ anywhere else.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    target_compile_definitions(astcenc PRIVATE ASTCENC_SSE=41 ASTCENC_AVX=0 ASTCENC_POPCNT=1 ASTCENC_F16C=0
+        ASTCENC_NEON=0 ASTCENC_SVE=0)
+    if(NOT MSVC)
+        target_compile_options(astcenc PRIVATE -msse4.1 -mpopcnt)
+    endif()
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+    target_compile_definitions(astcenc PRIVATE ASTCENC_NEON=1 ASTCENC_SSE=0 ASTCENC_AVX=0 ASTCENC_POPCNT=0
+        ASTCENC_F16C=0 ASTCENC_SVE=0)
+else()
+    target_compile_definitions(astcenc PRIVATE ASTCENC_NEON=0 ASTCENC_SSE=0 ASTCENC_AVX=0 ASTCENC_POPCNT=0
+        ASTCENC_F16C=0 ASTCENC_SVE=0)
+endif()
+if(MSVC)
+    target_compile_options(astcenc PRIVATE $<$<CONFIG:Release>:/O2> /fp:precise)
+else()
+    # Not -ffast-math, and no FMA contraction: results must match astcenc's own builds.
+    target_compile_options(astcenc PRIVATE -O3 -ffp-contract=off -fno-exceptions -fno-rtti)
+endif()
+
 add_library(tessera_bridge SHARED
     ${VENDOR_SOURCES}
     ${VENDOR_DIR}/tessera_bridge.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/astc_bridge.cpp
 )
 
-target_include_directories(tessera_bridge PRIVATE ${VENDOR_DIR})
+target_include_directories(tessera_bridge PRIVATE ${VENDOR_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tessera_bridge PRIVATE astcenc)
 
 # The encoder spawns worker threads (std::thread). Without this, on glibc < 2.34
 # libpthread is not recorded as NEEDED and pthread_* only resolve because the

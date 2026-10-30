@@ -13,7 +13,7 @@ import java.util.HexFormat;
 import java.util.Locale;
 
 /**
- * Native bc7enc_rdo encoder over JNI. Works on every JDK with no launch flags
+ * Native encoders over JNI: bc7enc_rdo (BC7, BC1) and ARM's astc-encoder (ASTC). Works on every JDK with no launch flags
  * (unlike FFM, which is preview-only on the Java 21 runtime Minecraft 1.21.1
  * ships), and is zero-copy: the native side reads the source and writes the
  * blocks directly through direct-buffer addresses.
@@ -26,7 +26,7 @@ import java.util.Locale;
 final class JniCompressionBackend implements CompressionBackend {
 
     /** Must match kTesseraJniAbiVersion in tessera_bridge.cpp. */
-    static final int EXPECTED_ABI_VERSION = 2;
+    static final int EXPECTED_ABI_VERSION = 3;
     private static final int BC7_BYTES_PER_BLOCK = 16;
     private static final int BC1_BYTES_PER_BLOCK = 8;
 
@@ -45,6 +45,17 @@ final class JniCompressionBackend implements CompressionBackend {
 
     private static native int nativeDecompressBc7(ByteBuffer src, int width, int height, ByteBuffer dst);
 
+    private static native long nativeCompressAstc(ByteBuffer src, int width, int height, int blockWidth,
+                                                  int blockHeight, int quality, ByteBuffer dst);
+
+    private static native int nativeDecompressAstc(ByteBuffer src, int width, int height, int blockWidth,
+                                                   int blockHeight, ByteBuffer dst);
+
+    /** Bytes of an ASTC image: 16 per block, partial blocks at the edges count whole. */
+    private static long astcBytes(int width, int height, int blockWidth, int blockHeight) {
+        return (long) ((width + blockWidth - 1) / blockWidth) * ((height + blockHeight - 1) / blockHeight) * 16L;
+    }
+
     /** The ABI version the loaded library reports; the static initializer already checks it. */
     static int abiVersion() {
         return nativeAbiVersion();
@@ -62,6 +73,44 @@ final class JniCompressionBackend implements CompressionBackend {
         }
         ByteBuffer dst = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.LITTLE_ENDIAN);
         return nativeDecompressBc7(bc7.slice(), width, height, dst) == 0 ? dst : null;
+    }
+
+    /**
+     * Decodes ASTC LDR blocks to RGBA8 with astc-encoder's decoder: an implementation independent of
+     * Tessera's own encoders, used by the round-trip checks, not by the game.
+     *
+     * @return width * height RGBA8 texels, or {@code null} if the decoder rejects the input
+     */
+    static ByteBuffer decompressAstc(ByteBuffer astc, int width, int height, int blockWidth, int blockHeight) {
+        if (!astc.isDirect()) {
+            throw new IllegalArgumentException("decompressAstc requires a direct source buffer");
+        }
+        ByteBuffer dst = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.LITTLE_ENDIAN);
+        return nativeDecompressAstc(astc.slice(), width, height, blockWidth, blockHeight, dst) == 0 ? dst : null;
+    }
+
+    @Override
+    public ByteBuffer compressAstc(ByteBuffer rgba8Direct, int width, int height, int blockWidth, int blockHeight,
+                                   int qualityPreset, boolean guardQuality) {
+        if (!rgba8Direct.isDirect()) {
+            throw new IllegalArgumentException("JniCompressionBackend requires a direct source buffer");
+        }
+        long size = astcBytes(width, height, blockWidth, blockHeight);
+        if (size > Integer.MAX_VALUE) {
+            return null;
+        }
+        ByteBuffer dst = ByteBuffer.allocateDirect((int) size).order(ByteOrder.LITTLE_ENDIAN);
+        long written = nativeCompressAstc(rgba8Direct.slice(), width, height, blockWidth, blockHeight, qualityPreset, dst);
+        if (written <= 0) {
+            return null;
+        }
+        dst.limit((int) written);
+        return dst;
+    }
+
+    @Override
+    public boolean supportsAstc() {
+        return true;
     }
 
     @Override
@@ -118,16 +167,31 @@ final class JniCompressionBackend implements CompressionBackend {
         if (os.contains("win") && isX64) {
             return "windows-x86_64";
         }
+        if (os.contains("mac") && (isX64 || isAarch64)) {
+            return isAarch64 ? "macos-aarch64" : "macos-x86_64";
+        }
         if (os.contains("linux") && (isX64 || isAarch64)) {
+            if (isAndroid()) {
+                // Launchers such as Pojav run the game on Android's bionic libc: a glibc build does not load.
+                throw new UnsatisfiedLinkError("No bundled tessera_bridge for Android (bionic libc)");
+            }
             return isAarch64 ? "linux-aarch64" : "linux-x86_64";
         }
-        // macOS (OpenGL 4.1, no BPTC), Windows on ARM, 32-bit: no bundled binary.
+        // Windows on ARM, 32-bit: no bundled binary.
         throw new UnsatisfiedLinkError("Unsupported platform for tessera_bridge: " + os + "/" + arch);
     }
 
+    /** Whether this JVM runs on Android (a Linux kernel with Android's own userland). */
+    private static boolean isAndroid() {
+        return System.getenv("ANDROID_ROOT") != null || Files.exists(Path.of("/system/build.prop"));
+    }
+
     private static String libraryFileName() {
-        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win")
-                ? "tessera_bridge.dll" : "libtessera_bridge.so";
+        String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        if (os.contains("win")) {
+            return "tessera_bridge.dll";
+        }
+        return os.contains("mac") ? "libtessera_bridge.dylib" : "libtessera_bridge.so";
     }
 
     /**

@@ -27,9 +27,19 @@ public interface CompressionBackend {
     /** BC1 counterpart of {@link #compressBc7}. Same contract. */
     ByteBuffer compressBc1(ByteBuffer rgba8Direct, int width, int height, int qualityPreset);
 
+    /**
+     * ASTC LDR counterpart of {@link #compressBc7}, for blocks of {@code blockWidth x blockHeight}
+     * texels (16 bytes each). Same contract; {@code null} when this backend has no ASTC encoder, or
+     * (software only, {@code guardQuality}) when it cannot reach an acceptable quality for the image.
+     */
+    ByteBuffer compressAstc(ByteBuffer rgba8Direct, int width, int height, int blockWidth, int blockHeight,
+                            int qualityPreset, boolean guardQuality);
+
     boolean supportsBc7();
 
     boolean supportsBc1();
+
+    boolean supportsAstc();
 
     /** Short name for logging (e.g. "native (FFM)", "software (pure Java)"). */
     String name();

@@ -195,7 +195,7 @@ public final class AtlasCache {
                         }
                         continue;
                     }
-                    if (!name.endsWith(CompressedFormat.BC1.extension) && !name.endsWith(CompressedFormat.BC7.extension)) {
+                    if (java.util.Arrays.stream(CompressedFormat.values()).noneMatch(f -> name.endsWith(f.extension))) {
                         continue;
                     }
                     long size = Files.size(p);
@@ -245,7 +245,9 @@ public final class AtlasCache {
      */
     public enum CompressedFormat {
         BC1(".bc1"),
-        BC7(".bc7");
+        BC7(".bc7"),
+        ASTC_4X4(".astc4"),
+        ASTC_6X6(".astc6");
 
         private final String extension;
 

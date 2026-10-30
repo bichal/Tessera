@@ -3,8 +3,6 @@ package net.bichal.mods.tessera.atlas;
 import net.bichal.mods.tessera.compat.Platform;
 import net.bichal.mods.tessera.compat.TesseraCompat;
 import net.bichal.mods.tessera.cache.AtlasCache;
-import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
-import net.bichal.mods.tessera.compress.Bc7GpuSupport;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.bichal.mods.tessera.compress.backend.TesseraRuntime;
 import net.bichal.mods.tessera.config.Config;
@@ -168,9 +166,7 @@ public final class AtlasCompressionDriver {
         // reject an atlas that would have comfortably fit at its actual
         // requested level count.
         for (int level = 0; level <= maxLevel; level++) {
-            int alignedWidth = (levelWidth + 3) & ~3;
-            int alignedHeight = (levelHeight + 3) & ~3;
-            total += (long) (alignedWidth / 4) * (alignedHeight / 4) * target.bytesPerBlock();
+            total += target.levelBytes(levelWidth, levelHeight);
             if (levelWidth <= 1 && levelHeight <= 1) {
                 break;
             }
@@ -194,8 +190,8 @@ public final class AtlasCompressionDriver {
             String atlasLocation, CompressionPipeline.Target target,
             ByteBuffer baseRgba8, int baseWidth, int baseHeight, int requestedMaxLevel
     ) {
-        if (target == CompressionPipeline.Target.BC7 && !Bc7GpuSupport.isSupported()) {
-            LOGGER.info("[Tessera coverage] Atlas {} SKIPPED (BC7 unsupported on this GPU).", atlasLocation);
+        if (!target.gpuSupported()) {
+            LOGGER.info("[Tessera coverage] Atlas {} SKIPPED ({} unsupported on this GPU).", atlasLocation, target);
             return new CompressedAtlas(atlasLocation, target, List.of(), requestedMaxLevel);
         }
 
@@ -219,10 +215,9 @@ public final class AtlasCompressionDriver {
         // internally, so a per-call pool plus queue would only add overhead.
         List<CompressedLevel> compressedLevels = new ArrayList<>(mipLevels.size());
         int quality = Config.get(Config.COMPRESSION_QUALITY);
-        boolean bc7 = target == CompressionPipeline.Target.BC7;
         String key = atlasLocation.toString();
         AtlasCache cache = cache();
-        AtlasCache.CompressedFormat format = bc7 ? AtlasCache.CompressedFormat.BC7 : AtlasCache.CompressedFormat.BC1;
+        AtlasCache.CompressedFormat format = target.cacheFormat();
         // Backend tag: software output must not be served forever once native becomes available.
         String backendTag = TesseraRuntime.isNativeActive() ? "n" : "s";
         int cacheHits = 0;
@@ -240,7 +235,7 @@ public final class AtlasCompressionDriver {
             if (blocks != null) {
                 cacheHits++;
             } else {
-                blocks = CompressionPipeline.compressBlocking(key, mipLevel.rgba8(), width, height, bc7, quality);
+                blocks = CompressionPipeline.compressBlocking(key, mipLevel.rgba8(), width, height, target, quality, level);
                 if (blocks == null) {
                     // Keep the levels already produced; upload() caps MAX_LEVEL accordingly.
                     break;
@@ -282,15 +277,22 @@ public final class AtlasCompressionDriver {
         // any async debug message the driver emits for it, is tagged with this
         // atlas's location, so upload errors are attributable in the log.
         // Harmless on drivers that ignore debug groups.
+        // Only where the context has it: OpenGL 4.3 / KHR_debug is missing on macOS (4.1) and on
+        // OpenGL ES-based layers, where calling it would crash the render thread.
+        boolean debugGroups = hasDebugGroups();
         String debugGroupLabel = "tessera:upload:" + compressed.atlasLocation();
-        GL43.glPushDebugGroup(GL43.GL_DEBUG_SOURCE_APPLICATION, 0, debugGroupLabel);
+        if (debugGroups) {
+            GL43.glPushDebugGroup(GL43.GL_DEBUG_SOURCE_APPLICATION, 0, debugGroupLabel);
+        }
         try {
             long resident = tessera$uploadInner(textureId, compressed);
             // -1 (nothing uploaded) clears the entry: the atlas stays vanilla RGBA.
             VramBudgetEngine.recordResident(compressed.atlasLocation(), resident);
             return resident;
         } finally {
-            GL43.glPopDebugGroup();
+            if (debugGroups) {
+                GL43.glPopDebugGroup();
+            }
 
             // One-shot, non-looping poll -- deliberately NOT the flood-
             // amplifying spin loop the removed tessera$flushGlErrors() was
@@ -311,6 +313,11 @@ public final class AtlasCompressionDriver {
                         trailingError, debugGroupLabel);
             }
         }
+    }
+
+    private static boolean hasDebugGroups() {
+        var caps = GL.getCapabilities();
+        return caps.OpenGL43 || caps.GL_KHR_debug;
     }
 
     private static long tessera$uploadInner(int textureId, CompressedAtlas compressed) {
@@ -385,10 +392,8 @@ public final class AtlasCompressionDriver {
         }
         for (int i = 0; i < compressed.levels().size(); i++) {
             CompressedLevel level = compressed.levels().get(i);
-            int blocksWide = ((level.width() + 3) & ~3) / 4;
-            int blocksHigh = ((level.height() + 3) & ~3) / 4;
             if (level.level() != i || level.compressedBlocks() == null
-                    || level.compressedBlocks().remaining() != blocksWide * blocksHigh * compressed.target().bytesPerBlock()) {
+                    || level.compressedBlocks().remaining() != compressed.target().levelBytes(level.width(), level.height())) {
                 return false;
             }
         }
@@ -411,9 +416,7 @@ public final class AtlasCompressionDriver {
             return false;
         }
 
-        int alignedWidth = (width + 3) & ~3;
-        int alignedHeight = (height + 3) & ~3;
-        int expectedBytes = (alignedWidth / 4) * (alignedHeight / 4) * target.bytesPerBlock();
+        long expectedBytes = target.levelBytes(width, height);
 
         if (compressedBlocks.remaining() != expectedBytes) {
             LOGGER.error(
@@ -423,24 +426,20 @@ public final class AtlasCompressionDriver {
             return false;
         }
 
-        // Never issue glCompressedTexImage2D with an S3TC format the driver has
-        // not advertised: the level's storage would be left undefined.
-        if (target == CompressionPipeline.Target.BC1 && !Bc1TextureFormatSupport.isSupported()) {
-            LOGGER.warn("Atlas {} BC1 upload skipped: driver does not advertise GL_EXT_texture_compression_s3tc.",
-                    atlasLocation);
+        // Never issue glCompressedTexImage2D with a format the driver has not advertised:
+        // the level's storage would be left undefined.
+        if (!target.gpuSupported()) {
+            LOGGER.warn("Atlas {} {} upload skipped: the driver does not advertise the format.", atlasLocation, target);
             return false;
         }
 
-        int glInternalFormat = target == CompressionPipeline.Target.BC1
-                ? EXTTextureCompressionS3TC.GL_COMPRESSED_RGB_S3TC_DXT1_EXT
-                : GL42.GL_COMPRESSED_RGBA_BPTC_UNORM;
+        int glInternalFormat = target.glFormat();
 
         // glCompressedTexImage2D (not glCompressedTexSubImage2D): vanilla allocates
         // atlas storage per level with glTexImage2D as mutable GL_RGBA8, and a
         // compressed *sub*-image upload into an RGBA8 level is GL_INVALID_OPERATION.
         // Respecifying the level's format and storage in one call is legal on
-        // mutable storage. Later partial updates (animations) can then use
-        // glCompressedTexSubImage2D, because the level is BC by that point.
+        // mutable storage.
         GL13.glCompressedTexImage2D(
                 GL11.GL_TEXTURE_2D, level, glInternalFormat, width, height, 0, compressedBlocks
         );
