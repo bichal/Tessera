@@ -33,6 +33,9 @@ public class EsEsLanguageProvider extends LanguageProvider {
                 "Fuerza el comportamiento RGBA vanilla aunque la compresión BC7 esté soportada por la GPU.");
 
         // Opciones de Desduplicación
+        addConfigOption("compressAnimatedAtlases", "Comprimir Atlas Animados",
+                "Comprime también los atlas con texturas animadas. Desactivado los deja en RGBA8888. Se ignora si Kerria está instalado.");
+
         addConfigOption("dedupSimilarityThreshold", "Umbral de Similitud",
                 "Distancia Hamming (0-64) para huellas pHash de 64 bits. Valores más bajos son más estrictos al fusionar sprites duplicados.");
 
