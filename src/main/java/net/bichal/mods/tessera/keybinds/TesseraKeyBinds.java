@@ -2,7 +2,7 @@ package net.bichal.mods.tessera.keybinds;
 
 // 1.21.1 only: from 1.21.10 the breakdown is its own debug screen entry,
 // toggled in vanilla's debug options like any other.
-//? <1.21.10 {
+//? if neoforge && <1.21.10 {
 import com.mojang.blaze3d.platform.InputConstants;
 import net.bichal.mods.tessera.Tessera;
 import net.bichal.mods.tessera.config.Config;

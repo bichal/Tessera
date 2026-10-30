@@ -1,5 +1,6 @@
 package net.bichal.mods.tessera.atlas;
 
+import net.bichal.mods.tessera.compat.Platform;
 import net.bichal.mods.tessera.compat.TesseraCompat;
 import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
@@ -10,7 +11,6 @@ import net.bichal.mods.tessera.config.Config;
 import net.bichal.mods.tessera.gui.DebugOverlay;
 import net.bichal.mods.tessera.vram.VramBudgetEngine;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
-import net.neoforged.fml.loading.FMLPaths;
 import org.lwjgl.opengl.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -495,7 +495,7 @@ public final class AtlasCompressionDriver {
 
     private static synchronized AtlasCache cache() {
         if (cacheInstance == null) {
-            cacheInstance = new AtlasCache(FMLPaths.GAMEDIR.get().resolve(Config.get(Config.CACHE_DIRECTORY)));
+            cacheInstance = new AtlasCache(Platform.gameDir().resolve(Config.get(Config.CACHE_DIRECTORY)));
             // Once per (re)creation, i.e. per resource reload, on whichever thread
             // calls compress(); a directory listing, negligible next to encoding.
             cacheInstance.prune(AtlasCache.configuredMaxBytes());

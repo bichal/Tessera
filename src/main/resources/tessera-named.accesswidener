@@ -1,0 +1,3 @@
+accessWidener v2 named
+# NeoForge makes these public; Fabric needs them widened.
+accessible field net/minecraft/client/renderer/texture/SpriteContents byMipLevel [Lcom/mojang/blaze3d/platform/NativeImage;

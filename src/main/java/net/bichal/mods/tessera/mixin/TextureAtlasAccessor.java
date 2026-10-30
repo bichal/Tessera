@@ -2,18 +2,23 @@ package net.bichal.mods.tessera.mixin;
 
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.gen.Accessor;
+
+import java.util.Map;
 
 //? >=1.21.11 {
 /*import net.minecraft.client.renderer.texture.SpriteContents;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
-import org.spongepowered.asm.mixin.gen.Accessor;
 
 import java.util.List;
 *///?}
 
-/** 1.21.11+: the atlas's sprites and their animation states (empty before). */
+/** The atlas's sprites by name and, from 1.21.11, as a list with their animation states. */
 @Mixin(TextureAtlas.class)
 public interface TextureAtlasAccessor {
+
+    @Accessor("texturesByName")
+    Map<?, net.minecraft.client.renderer.texture.TextureAtlasSprite> tessera$texturesByName();
 
     //? >=1.21.11 {
     /*@Accessor("sprites")

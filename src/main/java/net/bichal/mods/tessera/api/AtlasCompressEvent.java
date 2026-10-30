@@ -5,11 +5,19 @@ import net.bichal.mods.tessera.cache.AtlasCache.CompressedFormat;
 /*import net.minecraft.resources.Identifier;
 *///?} else
 import net.minecraft.resources.ResourceLocation;
+//? if neoforge {
 import net.neoforged.bus.api.Event;
 import net.neoforged.bus.api.ICancellableEvent;
+import net.neoforged.neoforge.common.NeoForge;
+//?} else {
+/*import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+*///?}
 
 /**
- * Fired on {@code NeoForge.EVENT_BUS}, on the render thread, around the
+ * Fired on {@code NeoForge.EVENT_BUS} (on Fabric: to the listeners given to
+ * {@link #addListener}), on the render thread, around the
  * in-place compression of each atlas after vanilla uploads it.
  *
  * <ul>
@@ -24,7 +32,30 @@ import net.neoforged.bus.api.ICancellableEvent;
  * of that first reload's atlases may never arrive. Later reloads are not affected.
  */
 @SuppressWarnings("unused")
+//? if neoforge {
 public abstract class AtlasCompressEvent extends Event {
+//?} else {
+/*public abstract class AtlasCompressEvent {
+
+    private static final List<Consumer<AtlasCompressEvent>> LISTENERS = new CopyOnWriteArrayList<>();
+
+    // Fabric has no event bus of its own for this: listeners register here.
+    public static void addListener(Consumer<AtlasCompressEvent> listener) {
+        LISTENERS.add(listener);
+    }
+*///?}
+
+    /** Delivers an event to every listener; the event comes back for chaining. */
+    public static <E extends AtlasCompressEvent> E post(E event) {
+        //? if neoforge {
+        return NeoForge.EVENT_BUS.post(event);
+        //?} else {
+        /*for (Consumer<AtlasCompressEvent> listener : LISTENERS) {
+            listener.accept(event);
+        }
+        return event;
+        *///?}
+    }
 
     //? >=1.21.11 {
     /*private final Identifier atlasLocation;
@@ -45,7 +76,21 @@ public abstract class AtlasCompressEvent extends Event {
         return atlasLocation;
     }
 
+    //? if neoforge {
     public static class Pre extends AtlasCompressEvent implements ICancellableEvent {
+    //?} else {
+    /*public static class Pre extends AtlasCompressEvent {
+
+        private boolean canceled;
+
+        public boolean isCanceled() {
+            return canceled;
+        }
+
+        public void setCanceled(boolean canceled) {
+            this.canceled = canceled;
+        }
+    *///?}
 
         private CompressedFormat targetFormat;
 

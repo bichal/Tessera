@@ -138,7 +138,13 @@ public final class DebugOverlay {
     }
     *///?}
 
-    //? >=1.21.10 {
+    //? if >=1.21.10 {
+    /*public static net.minecraft.client.gui.components.debug.DebugScreenEntryStatus shownStatus() {
+        return F3.SHOWN;
+    }
+    *///?}
+
+    //? if neoforge && >=1.21.10 {
     /*public static void registerDebugEntries(net.neoforged.neoforge.client.event.RegisterDebugEntriesEvent event) {
         var summary = net.bichal.mods.tessera.compat.TesseraCompat.id("atlas_compression");
         var breakdown = net.bichal.mods.tessera.compat.TesseraCompat.id("atlas_compression_breakdown");
@@ -146,7 +152,9 @@ public final class DebugOverlay {
         event.register(breakdown, (displayer, level, clientChunk, serverChunk) -> displayer.addToGroup(breakdown, breakdownLines()));
         event.includeInProfile(summary, net.minecraft.client.gui.components.debug.DebugScreenProfile.DEFAULT, F3.SHOWN);
     }
-    *///?} else {
+    *///?}
+
+    //? if neoforge && <1.21.10 {
     @net.neoforged.fml.common.EventBusSubscriber(modid = net.bichal.mods.tessera.Tessera.MOD_ID,
             value = net.neoforged.api.distmarker.Dist.CLIENT)
     public static final class F3Text {
@@ -159,19 +167,25 @@ public final class DebugOverlay {
             if (!net.minecraft.client.Minecraft.getInstance().gui.getDebugOverlay().showDebugScreen()) {
                 return;
             }
-            List<String> rightList = event.getRight();
-            List<String> tesseraLines = new ArrayList<>();
-            tesseraLines.add("");
-            tesseraLines.addAll(summaryLines());
-            if (isCompressedAtlasActive && bytesSavedByBC7 > 0 && Config.get(Config.SHOW_EXTENDED_DEBUG_BREAKDOWN)) {
-                tesseraLines.addAll(breakdownLines());
-            }
-            int insertIndex = getIndex(rightList);
-            if (insertIndex != -1 && insertIndex <= rightList.size()) {
-                rightList.addAll(insertIndex, tesseraLines);
-            } else {
-                rightList.addAll(tesseraLines);
-            }
+            addF3Lines(event.getRight());
+        }
+    }
+    //?}
+
+    //? if <1.21.10 {
+    /** Appends Tessera's lines to F3's right column, after the GPU "... - Build" line when there is one. */
+    public static void addF3Lines(List<String> rightList) {
+        List<String> tesseraLines = new ArrayList<>();
+        tesseraLines.add("");
+        tesseraLines.addAll(summaryLines());
+        if (isCompressedAtlasActive && bytesSavedByBC7 > 0 && Config.get(Config.SHOW_EXTENDED_DEBUG_BREAKDOWN)) {
+            tesseraLines.addAll(breakdownLines());
+        }
+        int insertIndex = getIndex(rightList);
+        if (insertIndex != -1 && insertIndex <= rightList.size()) {
+            rightList.addAll(insertIndex, tesseraLines);
+        } else {
+            rightList.addAll(tesseraLines);
         }
     }
     //?}
