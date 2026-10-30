@@ -20,9 +20,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * BC1/BC7 compression and upload for one atlas texture.
@@ -191,23 +189,10 @@ public final class AtlasCompressionDriver {
      * @return a {@link CompressedAtlas} with zero or more levels (zero levels
      * means compression was skipped; the caller keeps the uncompressed atlas)
      */
-    public static CompressedAtlas compress(
-            String atlasLocation, CompressionPipeline.Target target,
-            ByteBuffer baseRgba8, int baseWidth, int baseHeight, int requestedMaxLevel
-    ) {
-        return compress(atlasLocation, target, baseRgba8, baseWidth, baseHeight, requestedMaxLevel, Integer.MAX_VALUE);
-    }
-
-    /**
-     * @param retainRgbaFromLevel mip levels at or above this index also keep their
-     *                            RGBA pixels in the result (see
-     *                            {@link CompressedAtlas#retainedRgba}); pass
-     *                            {@link Integer#MAX_VALUE} to retain nothing
-     */
     @SuppressWarnings("LoggingSimilarMessage")
     public static CompressedAtlas compress(
             String atlasLocation, CompressionPipeline.Target target,
-            ByteBuffer baseRgba8, int baseWidth, int baseHeight, int requestedMaxLevel, int retainRgbaFromLevel
+            ByteBuffer baseRgba8, int baseWidth, int baseHeight, int requestedMaxLevel
     ) {
         if (target == CompressionPipeline.Target.BC7 && !Bc7GpuSupport.isSupported()) {
             LOGGER.info("[Tessera coverage] Atlas {} SKIPPED (BC7 unsupported on this GPU).", atlasLocation);
@@ -272,11 +257,7 @@ public final class AtlasCompressionDriver {
             LOGGER.info("Atlas {}: {} of {} mip level(s) served from disk cache.", atlasLocation, cacheHits, compressedLevels.size());
         }
 
-        Map<Integer, MipChainBuilder.MipLevel> retained = new HashMap<>();
-        for (int level = Math.max(0, retainRgbaFromLevel); level < mipLevels.size(); level++) {
-            retained.put(level, mipLevels.get(level));
-        }
-        return new CompressedAtlas(atlasLocation, target, compressedLevels, requestedMaxLevel, Map.copyOf(retained));
+        return new CompressedAtlas(atlasLocation, target, compressedLevels, requestedMaxLevel);
     }
 
     /**
@@ -528,16 +509,8 @@ public final class AtlasCompressionDriver {
             String atlasLocation,
             CompressionPipeline.Target target,
             List<CompressedLevel> levels,
-            int requestedMaxLevel,
-            // RGBA pixels of selected mip levels, kept so that animated sprites
-            // whose regions are smaller than a 4x4 block at those levels can be
-            // patched and re-encoded block by block. Empty for most atlases.
-            Map<Integer, MipChainBuilder.MipLevel> retainedRgba
+            int requestedMaxLevel
     ) {
-        public CompressedAtlas(String atlasLocation, CompressionPipeline.Target target,
-                               List<CompressedLevel> levels, int requestedMaxLevel) {
-            this(atlasLocation, target, levels, requestedMaxLevel, Map.of());
-        }
     }
 
     public record CompressedLevel(int level, int width, int height, ByteBuffer compressedBlocks) {

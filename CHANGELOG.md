@@ -9,8 +9,7 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 - Fabric builds for every Minecraft version (`<version>-fabric` nodes): settings in `config/tessera.properties`, F3 lines
   through mixins, `AtlasCompressEvent.addListener`, and a client self-test run (`:<version>-fabric:selftest`).
-- Setting `compressAnimatedAtlases` (off by default) for the old path that writes animation frames as BC blocks.
-- `ModCompat`: Kerria detection. While it is installed, atlases with animated textures are never compressed.
+- `ModCompat`: Kerria detection (logged; Kerria and Tessera work on different atlases).
 - `CompressionConsumptionTest`: GPU footprint of BC1 and BC7 against RGBA8888 and the time of one encode.
 
 - `NativeBridgeSelfTest`: loads the bundled bridge, checks the ABI it reports, and round-trips a 67 x 37 gradient
@@ -27,7 +26,8 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 - The disk cache stores entries compressed with Celeris's codec (native zstd when loaded, deflate otherwise): 2668 KiB of
   blocks from a vanilla client took 307 KiB. The entry layout changed (`TSR3`); old entries are misses and get replaced.
 
-- Animated textures stay RGBA8888: an atlas holding animated sprites is no longer compressed by default.
+- Animated textures stay RGBA8888: an atlas holding animated sprites is never compressed. The code that wrote animation
+  frames as BC blocks is gone (`CompressedAnimationUploader`, `AnimationReader`, the `SpriteContents.upload` mixin).
 - The format follows the content: an atlas whose texels are all opaque is stored as BC1, one with transparency as BC7.
 
 - Native libraries are no longer committed. CI builds them per platform. Local builds without them use the Java
