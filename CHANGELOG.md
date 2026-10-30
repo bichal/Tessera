@@ -24,6 +24,9 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Changed
 
+- The disk cache stores entries compressed with Celeris's codec (native zstd when loaded, deflate otherwise): 2668 KiB of
+  blocks from a vanilla client took 307 KiB. The entry layout changed (`TSR3`); old entries are misses and get replaced.
+
 - Animated textures stay RGBA8888: an atlas holding animated sprites is no longer compressed by default.
 - The format follows the content: an atlas whose texels are all opaque is stored as BC1, one with transparency as BC7.
 
