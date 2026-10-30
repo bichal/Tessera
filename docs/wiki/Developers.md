@@ -1,7 +1,8 @@
 # Developers
 
 `AtlasCompressEvent.Pre` (cancellable; choose BC7 or BC1 per atlas) and `AtlasCompressEvent.Post` (bytes saved and
-resident) are fired on `NeoForge.EVENT_BUS`.
+resident) are fired on `NeoForge.EVENT_BUS`; on Fabric, register a listener with
+`AtlasCompressEvent.addListener`.
 
 Source code, issues and docs: **[github.com/bichal/Tessera](https://github.com/bichal/Tessera)**
 
@@ -19,12 +20,13 @@ git clone https://github.com/bichal/Tessera.git
 ```
 
 Celeris is resolved from your local Maven repository (if you `publishToMavenLocal` it yourself) or from
-`https://bichal.github.io/Celeris/maven`. Requirements: **JDK 21**.
+`https://bichal.github.io/Celeris/maven`. Requirements: **JDK 21** for the game, **JDK 25** to run Gradle (the shared build logic needs it).
 
 ### Build and run
 
 ```bash
-./gradlew :1.21.1:build        # compile + test
+./gradlew :1.21.1:build        # compile + test (NeoForge); :1.21.1-fabric:build for Fabric
+./gradlew :1.21.1-fabric:selftest   # headless client check, either loader (-PselftestDefaultPolicy=true: shipped defaults)
 ./gradlew :1.21.1:runClient    # dev client
 ./gradlew :1.21.1:runData      # regenerate lang files (src/generated/resources)
 ./gradlew buildAndCollect      # release jars (universal, per-system, sources) in build/libs/<version>/
