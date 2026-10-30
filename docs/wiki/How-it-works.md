@@ -16,6 +16,9 @@
 - Fully transparent texels are colour-bled before encoding, so cutout and GUI textures get no fringes.
 - A content-addressed disk cache (`tessera-cache/`, size-capped, least-recently-used eviction) skips re-encoding
   unchanged atlases. Entries are stored compressed with Celeris (zstd), typically at about a tenth of their size.
+  An atlas is keyed twice: by a digest of its layout and sprite pixels (the whole encoded mip chain in one file, so a
+  launch with nothing changed skips pixel assembly, mip generation and encoding) and, when only some of it changed,
+  by each mip level's pixels.
 - The native encoders ([bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) for BC7 and BC1, ARM's
   [astc-encoder](https://github.com/ARM-software/astc-encoder) for ASTC) are loaded over JNI (no launch flags), bundled
   for Windows x86_64, Linux x86_64 and AArch64 (glibc 2.17+) and macOS (Apple Silicon and Intel). Anywhere else, or if

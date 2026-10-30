@@ -7,6 +7,12 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Added
 
+- Whole-atlas cache entries: a digest of an atlas's layout and sprite pixels keys its entire encoded mip chain in one
+  file (`...-chain-q<quality>...`), so an unchanged atlas skips pixel assembly, mip generation, per-level hashing and
+  encoding on the next launch. Per-level entries remain for atlases that changed.
+- The native sources (bc7enc_rdo, astc-encoder) are pinned in `[vendor.*]` of `mod.stonecutter.properties.toml` and
+  fetched by `bichal vendor` (bichal-build-logic), which CI runs before every native build; the `fetch.sh` scripts
+  are gone and the bc7enc_rdo patches live in `native/vendor/patches/`.
 - ASTC for ARM GPUs (Apple Silicon, Android): a `Target` per block format (BC1, BC7, ASTC 4x4, ASTC 6x6) with its
   own block size, `AstcGpuSupport` (`GL_KHR_texture_compression_astc_ldr`), and `AtlasFormats`, which picks BC1 / ASTC
   6x6 for opaque atlases and BC7 / ASTC 4x4 for atlases with transparency, from what the driver takes.

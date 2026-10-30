@@ -104,18 +104,19 @@ public abstract class TextureAtlasUploadMixin {
             return;
         }
 
-        // Pixel assembly stays synchronous: it reads sprite images that vanilla may
-        // close after this reload completes.
-        AtlasCompressionDriver.AssembledAtlas atlasPixels = AtlasCompressionDriver.assembleAtlasBuffer(
-                atlasName, sprites, preparations.width(), preparations.height());
-        if (atlasPixels == null) {
-            return;
-        }
-        ByteBuffer assembled = atlasPixels.pixels();
+        int width = preparations.width();
+        int height = preparations.height();
+        // The full vanilla mip chain.
+        int mipLevel = preparations.mipLevel();
+
+        // Sprite images may be closed once this reload completes, so everything that reads
+        // them (the fingerprint, and the pixel assembly on a miss) stays synchronous.
+        AtlasCompressionDriver.Fingerprint fingerprint =
+                AtlasCompressionDriver.fingerprint(sprites, width, height, mipLevel);
 
         // Default format by content and driver: BC1 / ASTC 6x6 when every texel is opaque, BC7 / ASTC 4x4
         // otherwise (keeps alpha). Listeners may cancel or pick another one.
-        CompressionPipeline.Target chosen = AtlasFormats.choose(atlasPixels.opaque());
+        CompressionPipeline.Target chosen = AtlasFormats.choose(fingerprint.opaque());
         if (chosen == null) {
             LOGGER.info("Atlas {}: this driver takes none of BC1, BC7, ASTC; kept as RGBA8888.", atlasName);
             return;
@@ -131,19 +132,33 @@ public abstract class TextureAtlasUploadMixin {
             return;
         }
 
-        // Encoding (and mip generation) runs off the render thread; only the GL
-        // upload hops back. The generation stamp drops results from a reload that
-        // was superseded while compressing, so a stale chain never overwrites a newer atlas.
-        int generation = tessera$generation;
-        int width = preparations.width();
-        int height = preparations.height();
-        // The full vanilla mip chain.
-        int mipLevel = preparations.mipLevel();
+        // An atlas identical to one encoded on an earlier run comes straight off the disk cache.
+        CompletableFuture<AtlasCompressionDriver.CompressedAtlas> job;
+        AtlasCompressionDriver.CompressedAtlas stored =
+                AtlasCompressionDriver.loadChain(atlasName, target, fingerprint, mipLevel);
+        if (stored != null) {
+            job = CompletableFuture.completedFuture(stored);
+        } else {
+            AtlasCompressionDriver.AssembledAtlas atlasPixels = AtlasCompressionDriver.assembleAtlasBuffer(
+                    atlasName, sprites, width, height);
+            if (atlasPixels == null) {
+                return;
+            }
+            ByteBuffer assembled = atlasPixels.pixels();
+            // Encoding (and mip generation) runs off the render thread; only the GL
+            // upload hops back.
+            job = CompletableFuture.supplyAsync(() -> {
+                AtlasCompressionDriver.CompressedAtlas encoded = AtlasCompressionDriver.compress(
+                        atlasName, target, assembled, width, height, mipLevel);
+                AtlasCompressionDriver.storeChain(fingerprint, encoded);
+                return encoded;
+            }, TesseraCompat.backgroundExecutor());
+        }
 
-        CompletableFuture
-                .supplyAsync(() -> AtlasCompressionDriver.compress(
-                        atlasName, target, assembled, width, height, mipLevel),
-                        TesseraCompat.backgroundExecutor())
+        // The generation stamp drops results from a reload that was superseded while
+        // compressing, so a stale chain never overwrites a newer atlas.
+        int generation = tessera$generation;
+        job
                 .whenComplete((compressed, failure) -> {
                     if (failure != null) {
                         LOGGER.error("Background compression failed for {} -- keeping vanilla RGBA atlas",
