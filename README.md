@@ -1,7 +1,7 @@
 ![Tessera](./docs/media/banner.png)
 
 <p align="center">
-<img src="https://img.shields.io/badge/Video_memory-up_to_75_percent_less-1f9d55?style=for-the-badge" alt="Up to 75% less video memory">
+<img src="https://img.shields.io/badge/Video_memory-up_to_--75%25%0A-1f9d55?style=for-the-badge" alt="Up to 75% less video memory">
 <img src="https://img.shields.io/badge/Minecraft-1.21_--_26.3-3c8527?style=for-the-badge" alt="Minecraft 1.21 to 1.21.11 and 26.1 to 26.3">
 <img src="https://img.shields.io/badge/NeoForge_and_Fabric-Client_only-e8710a?style=for-the-badge" alt="NeoForge and Fabric, client only">
 </p>
