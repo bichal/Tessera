@@ -5,28 +5,19 @@
 <img src="https://img.shields.io/badge/Minecraft-1.21_--_26.3-3c8527?style=for-the-badge" alt="Minecraft 1.21 to 1.21.11 and 26.1 to 26.3">
 <img src="https://img.shields.io/badge/NeoForge_and_Fabric-Client_only-e8710a?style=for-the-badge" alt="NeoForge and Fabric, client only">
 </p>
-
-> **Tessera makes Minecraft use less video memory.** It shrinks the game's textures on your graphics card by up to
-> **75%**, and the game looks exactly the same. Helpful with big resource packs, large modpacks, or a GPU without
-> much memory.
-
+<p align="center">
 <!-- publish:only modrinth -->
-<p align="center">
 <a href="https://modrinth.com/mod/olpctCIW"><img src="https://img.shields.io/badge/Download_on-Modrinth-1bd96a?style=for-the-badge&logo=modrinth&logoColor=white" alt="Download on Modrinth"></a>
-</p>
 <!-- /publish:only -->
-
 <!-- publish:only curseforge -->
-<p align="center">
 <a href="https://www.curseforge.com/projects/1643537"><img src="https://img.shields.io/badge/Download_on-CurseForge-f16436?style=for-the-badge&logo=curseforge&logoColor=white" alt="Download on CurseForge"></a>
-</p>
 <!-- /publish:only -->
-
 <!-- publish:only github -->
-<p align="center">
 <a href="https://github.com/bichal/Tessera/releases"><img src="https://img.shields.io/badge/Download_on-GitHub-24292f?style=for-the-badge&logo=github&logoColor=white" alt="Download on GitHub"></a>
-</p>
 <!-- /publish:only -->
+</p>
+
+> **Tessera makes Minecraft use less video memory.** It shrinks the game's textures on your graphics card by up to **75%**, and the game looks exactly the same. Helpful with big resource packs, large modpacks, or a GPU without much memory.
 
 ## What it does
 
