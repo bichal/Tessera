@@ -494,6 +494,7 @@ public final class AtlasCompressionDriver {
             return -1;
         }
         TesseraCompat.bindTexture(textureId);
+        TesseraCompat.resetUnpackState();
 
         // Immutable storage (glTexStorage2D, e.g. from another mod) cannot be respecified: the
         // compressed upload would fail and leave the atlas as it is, so it is not attempted.

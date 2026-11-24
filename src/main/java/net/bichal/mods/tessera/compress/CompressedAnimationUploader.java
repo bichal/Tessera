@@ -618,6 +618,7 @@ public final class CompressedAnimationUploader {
             upgrade.run();
         }
         TesseraCompat.bindTexture(state.glId());
+        TesseraCompat.resetUnpackState();
         ByteBuffer[] cached = null;
         Map<Long, ByteBuffer[]> spriteCache = null;
         if (cacheable) {

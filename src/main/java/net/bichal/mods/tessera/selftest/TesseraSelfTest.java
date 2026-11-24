@@ -185,12 +185,24 @@ public final class TesseraSelfTest {
         *///?}
     }
 
+    /**
+     * A second round after the first: the mipmap setting changes and every atlas reloads, as when a
+     * player changes a graphics setting in game (the textures of the first round are compressed by then).
+     * {@code -Dtessera.selftest.reload=false} skips it.
+     */
+    private static final boolean RELOAD_ROUND = !"false".equals(System.getProperty("tessera.selftest.reload"));
+    private static int round, registrationsAtReload = -1;
+    private static final List<String> FIRST_ROUND = new ArrayList<>();
+
     private static void tick() {
         if (done) {
             return;
         }
         ticks++;
         Minecraft mc = Minecraft.getInstance();
+        if (ticks == 1) {
+            GlErrors.install();
+        }
         if (CompressedAtlases.registrations() != seenRegistrations) {
             seenRegistrations = CompressedAtlases.registrations();
             lastCompressedTick = ticks;
@@ -206,11 +218,11 @@ public final class TesseraSelfTest {
         boolean blocksDone = CompressedAtlases.all().keySet().stream().anyMatch(atlas -> isBlocks(atlas.location().toString()))
                 || CompressedAtlases.keptForAnimations().stream().anyMatch(atlas -> isBlocks(atlas.location().toString()));
         boolean settled = !overlayShown(mc) && blocksDone && ticks - lastCompressedTick >= SETTLE_TICKS
-                && CompressedAnimationUploader.pendingUpgrades() == 0;
-        if (!settled && ticks < GIVE_UP_TICKS) {
+                && CompressedAnimationUploader.pendingUpgrades() == 0
+                && CompressedAtlases.registrations() > registrationsAtReload;
+        if (!settled && ticks < GIVE_UP_TICKS * (round + 1)) {
             return;
         }
-        done = true;
         List<String> lines = new ArrayList<>();
         // Steady state since the last atlas was compressed and its frames precoded: what animations cost per client tick.
         int window = Math.max(1, ticks - lastCompressedTick);
@@ -229,6 +241,29 @@ public final class TesseraSelfTest {
             LOGGER.error("Tessera self-test crashed", t);
             lines.add("crashed: " + t);
             pass = false;
+        }
+        pass &= GlErrors.report(lines);
+        if (RELOAD_ROUND && round == 0) {
+            // Same checks again after the reload a graphics setting change triggers.
+            FIRST_ROUND.add("first round: " + (pass ? "PASS" : "FAIL"));
+            lines.forEach(line -> FIRST_ROUND.add("  " + line));
+            round = 1;
+            registrationsAtReload = CompressedAtlases.registrations();
+            animatedChanged = 0;
+            lastCompressedTick = ticks;
+            int mipmaps = mc.options.mipmapLevels().get();
+            int changed = mipmaps == 4 ? 2 : 4;
+            LOGGER.info("Tessera self-test: mipmap levels {} -> {}, reloading", mipmaps, changed);
+            mc.options.mipmapLevels().set(changed);
+            mc.updateMaxMipLevel(changed);
+            mc.reloadResourcePacks();
+            return;
+        }
+        done = true;
+        if (!FIRST_ROUND.isEmpty()) {
+            pass &= FIRST_ROUND.get(0).endsWith("PASS");
+            lines.add(0, "second round, after changing the mipmap levels and reloading:");
+            lines.addAll(0, FIRST_ROUND);
         }
         lines.add(0, "tessera selftest " + System.getProperty("tessera.selftest.version", "?") + ": " + (pass ? "PASS" : "FAIL"));
         lines.forEach(LOGGER::info);

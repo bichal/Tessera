@@ -164,6 +164,19 @@ public final class TesseraCompat {
     }
     *///?}
 
+    /**
+     * Pixel unpack state as compressed uploads expect it. Vanilla sets GL_UNPACK_ROW_LENGTH and the
+     * skips for each image it uploads and leaves them set; the GL ignores them for compressed images,
+     * but some drivers (Intel on Windows) apply them anyway and read past the end of the data.
+     */
+    public static void resetUnpackState() {
+        org.lwjgl.opengl.GL15.glBindBuffer(org.lwjgl.opengl.GL21.GL_PIXEL_UNPACK_BUFFER, 0);
+        org.lwjgl.opengl.GL11.glPixelStorei(org.lwjgl.opengl.GL11.GL_UNPACK_ROW_LENGTH, 0);
+        org.lwjgl.opengl.GL11.glPixelStorei(org.lwjgl.opengl.GL11.GL_UNPACK_SKIP_ROWS, 0);
+        org.lwjgl.opengl.GL11.glPixelStorei(org.lwjgl.opengl.GL11.GL_UNPACK_SKIP_PIXELS, 0);
+        org.lwjgl.opengl.GL11.glPixelStorei(org.lwjgl.opengl.GL11.GL_UNPACK_ALIGNMENT, 4);
+    }
+
     /** Every sprite of an atlas, by name. */
     public static java.util.Collection<TextureAtlasSprite> textures(TextureAtlas atlas) {
         return ((net.bichal.mods.tessera.mixin.TextureAtlasAccessor) atlas).tessera$texturesByName().values();
