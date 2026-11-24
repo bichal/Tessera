@@ -79,7 +79,11 @@ pluginManager.withPlugin("net.neoforged.moddev") { configure<NeoForgeExtension> 
 // NeoForge makes some SpriteContents members public; Fabric widens them. 1.21.x is
 // obfuscated (access widener namespace "named"), 26.x is not ("official"); the right file
 // ships in the jar as tessera.accesswidener, the other is left out.
-val accessWidener = if (modProps.mcVersion.startsWith("1.")) "tessera-named.accesswidener" else "tessera-official.accesswidener"
+val accessWidener = when {
+    modProps.mcVersion == "1.21.11" -> "tessera-named-1.21.11.accesswidener" // + the 1.21.11 animation state
+    modProps.mcVersion.startsWith("1.") -> "tessera-named.accesswidener"
+    else -> "tessera-official.accesswidener"
+}
 if (modProps.isFabric) {
     // The Mod Menu entrypoint (TesseraModMenu) compiles against Mod Menu's API only; Mod Menu is
     // neither bundled nor required (it calls the entrypoint when installed).

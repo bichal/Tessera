@@ -1,0 +1,12 @@
+accessWidener v2 named
+# NeoForge makes these public; Fabric needs them widened.
+accessible field net/minecraft/client/renderer/texture/SpriteContents byMipLevel [Lcom/mojang/blaze3d/platform/NativeImage;
+# 1.21.11+: what the animation of a compressed atlas reads (AnimationReader). Absent before 1.21.11.
+accessible class net/minecraft/client/renderer/texture/SpriteContents$AnimatedTexture
+accessible class net/minecraft/client/renderer/texture/SpriteContents$FrameInfo
+accessible field net/minecraft/client/renderer/texture/SpriteContents$AnimationState frame I
+accessible field net/minecraft/client/renderer/texture/SpriteContents$AnimationState subFrame I
+accessible field net/minecraft/client/renderer/texture/SpriteContents$AnimationState animationInfo Lnet/minecraft/client/renderer/texture/SpriteContents$AnimatedTexture;
+accessible field net/minecraft/client/renderer/texture/SpriteContents$AnimatedTexture frames Ljava/util/List;
+accessible field net/minecraft/client/renderer/texture/SpriteContents$AnimatedTexture frameRowSize I
+accessible field net/minecraft/client/renderer/texture/SpriteContents$AnimatedTexture interpolateFrames Z

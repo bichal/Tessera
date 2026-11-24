@@ -2,10 +2,11 @@
 
 - Every atlas is re-encoded after vanilla's upload, with its full mip chain, in the smallest format its content
   allows, including atlases that hold animated textures, such as the block atlas with water, lava and fire:
-  - Each animation frame is **precoded**: when the atlas is compressed, every frame of every animated texture is
-    encoded once in the background (all of a mip level's frames in one call to the native encoder). From then on a
-    frame change is a small upload of blocks already encoded, with no encoding on the render thread. Blended frames
-    (interpolated animations) are encoded the first time they appear and reused when they come back.
+  - Each animation frame is **precoded**: when the atlas is compressed, every frame of every animated texture, and
+    every blended step of the interpolated ones (prismarine, magma, sculk, command blocks...), is encoded once in the
+    background, all of a mip level's frames in one call to the native encoder. From then on a frame change is a small
+    upload of blocks already encoded. What is left for the render thread is the smallest mip levels, where a sprite
+    shares 4x4 blocks with its neighbours: those few blocks are re-encoded and remembered.
   - Frames are written per 4x4 block, so atlases with animations use BC1 or BC7; on GPUs with only ASTC they stay
     RGBA8888.
   - With [Kerria](https://modrinth.com/mod/kerria-opt) installed, atlases with animated textures stay RGBA8888, since

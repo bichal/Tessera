@@ -9,8 +9,11 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 - Atlases with animated sprites (the block atlas) are compressed again, by default (`compressAnimatedAtlases`, on):
   `CompressedAnimationUploader`, `AnimationReader` and the `SpriteContents.upload` mixin are back. Every keyframe is
-  precoded once in the background when the atlas is registered, each mip level's frames stacked in one native
-  encode, so the render thread no longer encodes keyframes. Only BC1 and BC7 (4x4 blocks); with Kerria installed
+  precoded once in the background when the atlas is registered, and so is every blended step of the interpolated
+  ones (up to 16384 per atlas), each mip level's frames stacked in one native encode, so the render thread no longer
+  encodes them. On Fabric 1.21.11 the animation state is read through the access widener
+  (`tessera-named-1.21.11.accesswidener`) instead of by name, which an intermediary-named production run would not
+  find. Only BC1 and BC7 (4x4 blocks); with Kerria installed
   those atlases stay RGBA8888 and F3 shows their size. Frame 0 alone no longer decides BC1: every frame of an
   animated sprite must be opaque. A chain served from the disk cache rebuilds the deep levels' RGBA it needs for
   per-block frame patches.
