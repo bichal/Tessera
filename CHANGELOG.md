@@ -86,6 +86,11 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Fixed
 
+- A Fabric production client (intermediary names on 1.21.x) left every atlas uncompressed: the background executor,
+  the GL id of a texture, the 1.21.1 pixel getter and the animation timeline were looked up by Mojang name only. Each
+  lookup now tries the intermediary name as well; `selftestProd` runs the self-test with the remapped jar.
+- Intel's Windows driver crashed when an atlas was compressed again after a graphics setting change: it applies the
+  pixel unpack state vanilla leaves set (row length, skips) to compressed uploads. Tessera resets it before uploading.
 - The JNI entry points were exported as `Java_com_bichal_*` and `Java_com_panzer_*`, but the Java class is
   `net.bichal.mods.tessera.compress.backend.JniCompressionBackend`. The committed binary did not load, so jars built from it
   used the Java encoder without an error. Released jars were not checked. Entry points are now `Java_net_bichal_*`.
