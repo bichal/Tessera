@@ -21,8 +21,8 @@
 
 ## What it does
 
-- Keeps the game's textures in a smaller format on your graphics card. The game looks the same. It picks the format your GPU takes: BC1 and BC7 on PC graphics cards, ASTC on ARM GPUs (Apple Silicon, Android).
-- Animated textures stay uncompressed (RGBA8888), as vanilla draws them.
+- Keeps the game's textures in a smaller format on your graphics card. The game looks the same. It picks the format your GPU takes: BC1 (with 1-bit alpha for cut-out textures) and BC7 on PC graphics cards, ASTC on ARM GPUs (Apple Silicon, Android).
+- Splits the atlases in two: static ones are compressed, animated ones stay uncompressed (RGBA8888), as vanilla draws them. Works alongside [Kerria](https://modrinth.com/mod/kerria-opt), which speeds up the animated ones.
 - Works in the background, so loading textures does not freeze the game.
 - Leaves shaders and other visual mods working.
 - Shows the savings: press F3 to see how much video memory it saves.

@@ -1,6 +1,6 @@
 # Developers
 
-`AtlasCompressEvent.Pre` (cancellable; choose BC7 or BC1 per atlas) and `AtlasCompressEvent.Post` (bytes saved and
+`AtlasCompressEvent.Pre` (cancellable; choose the format per static atlas: BC1, BC1A, BC7, ASTC) and `AtlasCompressEvent.Post` (bytes saved and
 resident) are fired on `NeoForge.EVENT_BUS`; on Fabric, register a listener with
 `AtlasCompressEvent.addListener`.
 

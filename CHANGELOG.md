@@ -7,9 +7,19 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Added
 
+- Static and animated atlases are split explicitly (`AtlasPolicy.Kind`): static ones are compressed, animated ones stay
+  RGBA8888 for vanilla or Kerria to write frames into. F3 shows the animated half's RGBA size next to the compressed
+  one.
+- BC1 with one-bit alpha (`BC1A`, `GL_COMPRESSED_RGBA_S3TC_DXT1_EXT`) for static atlases without mip levels whose texels
+  are all fully opaque or fully transparent: 4 bits per texel instead of BC7's 8, alpha exact. It starts from the
+  native (or Java) opaque BC1 encode and refits only the blocks with transparent texels. Below 32 dB PSNR on the
+  visible texels the atlas is encoded as BC7 instead, and that chain is cached under its own key.
+- After uploading level 0, Tessera checks that the driver stored it compressed; atlases with immutable texture
+  storage are left alone. Either way the atlas stays as vanilla uploaded it instead of being half compressed.
+
 - Whole-atlas cache entries: a digest of an atlas's layout and sprite pixels keys its entire encoded mip chain in one
   file (`...-chain-q<quality>...`), so an unchanged atlas skips pixel assembly, mip generation, per-level hashing and
-  encoding on the next launch. Per-level entries remain for atlases that changed.
+  encoding on the next launch.
 - The native sources (bc7enc_rdo, astc-encoder) are pinned in `[vendor.*]` of `mod.stonecutter.properties.toml` and
   fetched by `bichal vendor` (bichal-build-logic), which CI runs before every native build; the `fetch.sh` scripts
   are gone and the bc7enc_rdo patches live in `native/vendor/patches/`.
@@ -37,6 +47,13 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   JNI symbols, native test).
 
 ### Changed
+
+- The VRAM budget is advisory, as its setting says: an atlas over it is still compressed (and a warning logged).
+  Before, it was left RGBA8888, which takes two to eight times more than the compressed chain.
+- Disk cache: only the whole-chain entry is written (per-level entries were a second copy of the same blocks); old
+  per-level entries are still read. Entries are packed at zstd level 9 instead of 3.
+- F3 no longer says "UNSUPPORTED (macOS)": macOS takes BC1 for opaque atlases, so the status follows what was
+  compressed.
 
 - The upload no longer assumes 4x4 blocks or OpenGL 4.3: level sizes come from the format's block size, and the GL
   debug group is only used where the context has it (macOS and OpenGL ES layers do not).
