@@ -1,8 +1,9 @@
 # Release gate for v* tags. The native bridge must build from source, its JNI
-# symbols must match the Java native methods, its glibc floor must be 2.17 or
-# lower, and its JNI test must pass. Publishing runs in ci.yml (bichal-build-logic
-# mod-ci.yml), which `bichal sync` generates: make "Release gate / native" a
-# required check for tags (repository ruleset) so a failing gate blocks the release.
+# symbols must match the Java native methods, its glibc floor must be 2.31 or
+# lower (Ubuntu 20.04, where it is built), and its JNI test must pass. Publishing
+# runs in ci.yml (bichal-build-logic mod-ci.yml), which `bichal sync` generates:
+# make "Release gate / native" a required check for tags (repository ruleset) so
+# a failing gate blocks the release.
 name: Release gate
 
 on:
@@ -32,7 +33,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           repository: bichal/BichalBuildLogic
-          ref: b47c0061cd3af9c73f47957c8afd18c421a84016
+          ref: de81f15fdaca1e20b4a39f2309e658f02a3e535a
           path: bichal-build-logic
           persist-credentials: false
 
@@ -52,15 +53,15 @@ jobs:
           python3 ../bichal-build-logic/tools/bichal.py vendor .
           ./native/build-linux.sh
 
-      - name: glibc floor is 2.17 or lower
+      - name: glibc floor is 2.31 or lower
         working-directory: mod
         run: |
           for f in natives/linux/*/libtessera_bridge.so; do
             max=$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -n 1)
             echo "$f requires $max"
-            top=$(printf '%s\n%s\n' "${max#GLIBC_}" 2.17 | sort -V | tail -n 1)
-            if [ "$top" != "2.17" ]; then
-              echo "requires $max, above GLIBC_2.17" >&2
+            top=$(printf '%s\n%s\n' "${max#GLIBC_}" 2.31 | sort -V | tail -n 1)
+            if [ "$top" != "2.31" ]; then
+              echo "requires $max, above GLIBC_2.31" >&2
               exit 1
             fi
           done

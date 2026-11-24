@@ -38,7 +38,7 @@
   with nothing changed skips pixel assembly, mip generation and encoding.
 - The native encoders ([bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) for BC7 and BC1, ARM's
   [astc-encoder](https://github.com/ARM-software/astc-encoder) for ASTC) are loaded over JNI (no launch flags), bundled
-  for Windows x86_64, Linux x86_64 and AArch64 (glibc 2.17+) and macOS (Apple Silicon and Intel). Anywhere else, or if
+  for Windows x86_64, Linux x86_64 and AArch64 (glibc 2.31+) and macOS (Apple Silicon and Intel). Anywhere else, or if
   they fail to load (Android launchers use bionic libc), pure-Java encoders take over. The Java ASTC encoder is simpler
   (one colour line per block): it checks its own result and leaves an atlas as vanilla rather than store one that would
   look worse than about 27 dB PSNR.
