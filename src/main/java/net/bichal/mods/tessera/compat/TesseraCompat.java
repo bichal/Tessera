@@ -94,11 +94,16 @@ public final class TesseraCompat {
         /*// Through reflection: the GPU texture types moved from com.mojang.blaze3d to
         // com.mojang.renderpearl in 26.3 (the 26.1 build also runs there), and
         // NeoForge's validation layer (dev runs) wraps them: getRealTexture() is the
-        // GL texture underneath. Its glId() kept its name.
+        // GL texture underneath. Its glId() kept its name. On Fabric the names are
+        // intermediary ones (method_68004, method_68427).
         try {
-            Object gpu = AbstractTexture.class.getMethod("getTexture").invoke(texture);
+            java.lang.reflect.Method getTexture = method(AbstractTexture.class, "getTexture", "method_68004");
+            if (getTexture == null) {
+                throw new NoSuchMethodException("AbstractTexture.getTexture");
+            }
+            Object gpu = getTexture.invoke(texture);
             for (int depth = 0; depth < 4; depth++) {
-                java.lang.reflect.Method glId = method(gpu.getClass(), "glId");
+                java.lang.reflect.Method glId = method(gpu.getClass(), "glId", "method_68427");
                 if (glId != null) {
                     return (int) glId.invoke(gpu);
                 }
@@ -147,12 +152,15 @@ public final class TesseraCompat {
         }
     }
 
-    private static java.lang.reflect.Method method(Class<?> type, String name) {
-        try {
-            return type.getMethod(name);
-        } catch (NoSuchMethodException e) {
-            return null;
+    private static java.lang.reflect.Method method(Class<?> type, String... names) {
+        for (String name : names) {
+            try {
+                return type.getMethod(name);
+            } catch (NoSuchMethodException ignored) {
+                // the next name
+            }
         }
+        return null;
     }
     *///?}
 
@@ -203,28 +211,29 @@ public final class TesseraCompat {
     /**
      * 1.21.2 dropped NativeImage.getPixelRGBA (ABGR) for getPixel (ARGB), and the
      * sprite's getPixelRGBA returns ARGB from then on too (the 1.21.1 build also
-     * runs on 1.21.2 - 1.21.4).
+     * runs on 1.21.2 - 1.21.4). Fabric runs them as method_4315 and method_61940.
      */
-    private static final boolean ARGB_PIXELS = !hasMethod(NativeImage.class, "getPixelRGBA", int.class, int.class);
-    private static final java.lang.invoke.MethodHandle IMAGE_PIXEL = imagePixel();
+    private static final java.lang.invoke.MethodHandle ABGR_PIXEL = imagePixel("getPixelRGBA", "method_4315");
+    private static final boolean ARGB_PIXELS = ABGR_PIXEL == null;
+    private static final java.lang.invoke.MethodHandle IMAGE_PIXEL = ARGB_PIXELS
+            ? imagePixel("getPixel", "method_61940") : ABGR_PIXEL;
 
-    private static java.lang.invoke.MethodHandle imagePixel() {
-        try {
-            return java.lang.invoke.MethodHandles.publicLookup().findVirtual(NativeImage.class,
-                    ARGB_PIXELS ? "getPixel" : "getPixelRGBA",
-                    java.lang.invoke.MethodType.methodType(int.class, int.class, int.class));
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Tessera: no NativeImage pixel getter", e);
+    static {
+        if (IMAGE_PIXEL == null) {
+            throw new IllegalStateException("Tessera: no NativeImage pixel getter");
         }
     }
 
-    private static boolean hasMethod(Class<?> type, String name, Class<?>... parameters) {
-        try {
-            type.getMethod(name, parameters);
-            return true;
-        } catch (NoSuchMethodException e) {
-            return false;
+    private static java.lang.invoke.MethodHandle imagePixel(String... names) {
+        var type = java.lang.invoke.MethodType.methodType(int.class, int.class, int.class);
+        for (String name : names) {
+            try {
+                return java.lang.invoke.MethodHandles.publicLookup().findVirtual(NativeImage.class, name, type);
+            } catch (ReflectiveOperationException ignored) {
+                // the next name
+            }
         }
+        return null;
     }
     //?}
 
@@ -295,15 +304,22 @@ public final class TesseraCompat {
     /**
      * {@code Util.backgroundExecutor()}: an ExecutorService up to 1.21.1, a
      * TracingExecutor from 1.21.2 (the 1.21.1 build also runs there), so it is
-     * looked up by name; both are Executors.
+     * looked up by name (method_18349 on Fabric); both are Executors.
      */
     public static Executor backgroundExecutor() {
         Executor executor = background;
         if (executor == null) {
-            try {
-                executor = (Executor) Util.class.getMethod("backgroundExecutor").invoke(null);
-            } catch (ReflectiveOperationException e) {
-                throw new IllegalStateException("Tessera: no Util.backgroundExecutor()", e);
+            ReflectiveOperationException failure = null;
+            for (String name : new String[]{"backgroundExecutor", "method_18349"}) {
+                try {
+                    executor = (Executor) Util.class.getMethod(name).invoke(null);
+                    break;
+                } catch (ReflectiveOperationException e) {
+                    failure = e;
+                }
+            }
+            if (executor == null) {
+                throw new IllegalStateException("Tessera: no Util.backgroundExecutor()", failure);
             }
             background = executor;
         }

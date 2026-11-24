@@ -49,14 +49,13 @@ final class AnimationReader {
     }
 
     /**
-     * Up to 1.21.10 the sequence sits in {@code SpriteContents.animatedTexture}, read by name (Mojang's
-     * names at run time: NeoForge; a Fabric production run, which uses intermediary names, gets
-     * {@code null} and simply skips precoding blended frames).
+     * Up to 1.21.10 the sequence sits in {@code SpriteContents.animatedTexture}, read by name: Mojang's
+     * names on NeoForge, intermediary ones on Fabric. {@code null} when it cannot be read, which only
+     * skips precoding blended frames.
      */
     static Timeline legacyTimeline(Object contents) {
         try {
-            java.lang.reflect.Field field = contents.getClass().getDeclaredField("animatedTexture");
-            field.setAccessible(true);
+            java.lang.reflect.Field field = field(contents.getClass(), "animatedTexture", "field_40541");
             Object info = field.get(contents);
             return info == null ? null : timelineOf(info);
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -67,23 +66,32 @@ final class AnimationReader {
     /** Reads an {@code AnimatedTexture} (any version) by its field names. */
     private static Timeline timelineOf(Object info) throws ReflectiveOperationException {
         Class<?> type = info.getClass();
-        List<?> frames = (List<?>) field(type, "frames").get(info);
-        int rowSize = field(type, "frameRowSize").getInt(info);
-        boolean interpolate = field(type, "interpolateFrames").getBoolean(info);
+        List<?> frames = (List<?>) field(type, "frames", "field_28472").get(info);
+        int rowSize = field(type, "frameRowSize", "field_28473").getInt(info);
+        boolean interpolate = field(type, "interpolateFrames", "field_40542").getBoolean(info);
         int[] indices = new int[frames.size()];
         int[] times = new int[frames.size()];
         for (int i = 0; i < indices.length; i++) {
             Object frame = frames.get(i);
-            indices[i] = field(frame.getClass(), "index").getInt(frame);
-            times[i] = field(frame.getClass(), "time").getInt(frame);
+            // FrameInfo became a record (comp_*) by 1.21.10.
+            indices[i] = field(frame.getClass(), "index", "field_28475", "comp_3445").getInt(frame);
+            times[i] = field(frame.getClass(), "time", "field_28476", "comp_3446").getInt(frame);
         }
         return new Timeline(indices, times, rowSize, interpolate);
     }
 
-    private static java.lang.reflect.Field field(Class<?> type, String name) throws NoSuchFieldException {
-        java.lang.reflect.Field field = type.getDeclaredField(name);
-        field.setAccessible(true);
-        return field;
+    /** A declared field by its first name that exists (Mojang's, then intermediary ones). */
+    private static java.lang.reflect.Field field(Class<?> type, String... names) throws NoSuchFieldException {
+        for (String name : names) {
+            try {
+                java.lang.reflect.Field field = type.getDeclaredField(name);
+                field.setAccessible(true);
+                return field;
+            } catch (NoSuchFieldException ignored) {
+                // the next name
+            }
+        }
+        throw new NoSuchFieldException(type.getName() + "." + names[0]);
     }
 
     //? if fabric && >=1.21.11 {

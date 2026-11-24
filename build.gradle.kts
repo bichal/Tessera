@@ -116,6 +116,22 @@ if (modProps.isFabric) {
             }
         }
     }
+    // The same self-test on the built jar in a production client: intermediary names on
+    // 1.21.x, as players run it (the dev runs above use Mojang names and cannot catch a
+    // lookup by name that only works there).
+    tasks.register<net.fabricmc.loom.task.prod.ClientProductionRunTask>("selftestProd") {
+        group = "verification"
+        description = "Runs TesseraSelfTest with the remapped jar in a production Fabric client."
+        mods.from(tasks.named("remapJar"))
+        mods.from(configurations.detachedConfiguration(
+            *configurations.getByName("modImplementation").dependencies.map { it.copy() }.toTypedArray()
+        ).apply { isTransitive = false })
+        if (selftestMods != null) mods.from(selftestMods.split(','))
+        runDir.set(rootProject.file("versions/${modProps.currentVersion}/run-selftest-prod"))
+        jvmArgs.addAll("-Dtessera.selftest=true", "-Dtessera.selftest.version=${modProps.currentVersion}", "-Xmx2G")
+        if (selftestFormats != null) jvmArgs.add("-Dtessera.formats=$selftestFormats")
+        if (selftestCompat) jvmArgs.add("-Dtessera.compatMode=true")
+    }
     // After bichal.fabric-mod's afterEvaluate, which sets every run's directory to "run".
     afterEvaluate {
         extensions.configure<net.fabricmc.loom.api.LoomGradleExtensionAPI>("loom") {
