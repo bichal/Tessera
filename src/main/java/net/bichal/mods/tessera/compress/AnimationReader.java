@@ -123,7 +123,8 @@ final class AnimationReader {
     static {
         MethodHandle[] h = new MethodHandle[9];
         boolean ok = false;
-        try {
+        // Before 1.21.11 there is no AnimationState (frames come through SpriteContents.upload): nothing to read.
+        if (net.bichal.mods.tessera.compat.TesseraCompat.GPU_ANIMATION) try {
             ClassLoader loader = AnimationReader.class.getClassLoader();
             Class<?> state = Class.forName(SPRITE_CONTENTS + "AnimationState", false, loader);
             Class<?> info = Class.forName(SPRITE_CONTENTS + "AnimatedTexture", false, loader);

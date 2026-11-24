@@ -208,134 +208,95 @@ public final class CompressedAnimationUploader {
     /** At most this many blended frames are precoded per atlas (a 22-frame prismarine blends into 6600). */
     private static final int MAX_PRECODED_BLENDS = 16384;
 
+    /** Pixels of a sprite's mip images, ABGR, by level and coordinates. */
+    @FunctionalInterface
+    private interface PixelSource {
+        int abgr(int level, int x, int y);
+    }
+
+    /** One animated sprite as the precode needs it, copied on the render thread. */
+    private record SpriteSnapshot(SpriteContents owner, int width, int height, int padding, int columns, int frameLevels,
+                                  int[] uniqueFrames, AnimationReader.Timeline timeline, int[][] pixels, int[] imageWidths) {
+
+        PixelSource source() {
+            return (level, x, y) -> pixels[level][y * imageWidths[level] + x];
+        }
+    }
+
     /**
-     * Encodes every keyframe of every animated sprite in the atlas once, in the background, with the
-     * atlas's own encoder, so frames are written from the cache from the start instead of being
-     * encoded on the render thread when first shown. The pixels are read here (the sprite images may
-     * be closed by a later reload); each mip level's keyframes are stacked in one image and encoded in
-     * a single call, since the native encoder's fixed cost per call outweighs one small frame.
+     * Encodes every keyframe of every animated sprite in the atlas once, and every blended step of
+     * the interpolated ones, in the background with the atlas's own encoder, so frames are written
+     * from caches from the start instead of being encoded on the render thread when first shown.
+     * Only the sprites' images are copied here (a later reload may close them); building the frames,
+     * hashing and encoding happen on the background thread. Each mip level's frames are stacked in one
+     * image and encoded in a single call, since the native encoder's fixed cost per call outweighs one
+     * small frame.
      */
     private static void precodeKeyframes(TextureAtlas atlas, AtlasState state) {
         long readStart = System.nanoTime();
         int levels = state.alignedLevel();
-        List<List<PrecodeRegion>> byLevel = new ArrayList<>();
-        for (int level = 0; level <= levels; level++) {
-            byLevel.add(new ArrayList<>());
-        }
-        int frames = 0;
-        int blends = 0;
         Map<SpriteContents, Object> stateBySprite = new IdentityHashMap<>();
         state.spritesByState().forEach((animation, sprite) -> stateBySprite.put(sprite.contents(), animation));
-        List<java.util.Set<Long>> blendSeen = new ArrayList<>();
-        for (int level = 0; level <= levels; level++) {
-            blendSeen.add(new java.util.HashSet<>());
-        }
+        List<SpriteSnapshot> sprites = new ArrayList<>();
         for (TextureAtlasSprite sprite : TesseraCompat.textures(atlas)) {
             SpriteContents contents = sprite.contents();
             if (!TesseraCompat.isAnimated(contents)) {
                 continue;
             }
             NativeImage[] images = contents.byMipLevel;
-            int w = contents.width();
-            int h = contents.height();
-            int columns = Math.max(1, images[0].getWidth() / w);
-            int padding = TesseraCompat.padding(sprite);
             int frameLevels = Math.min(levels, images.length - 1);
-            for (int frame : TesseraCompat.uniqueFrames(contents)) {
-                int column = frame % columns;
-                int row = frame / columns;
-                long key;
-                FramePixels pixels;
-                if (TesseraCompat.GPU_ANIMATION) {
-                    key = ((long) column << 32) | (row & 0xFFFFFFFFL);
-                    float padU = (float) padding / w;
-                    float padV = (float) padding / h;
-                    pixels = (level, px, py) -> {
-                        int tx = texel(px, (w + 2 * padding) >> level, padU, Math.max(1, w >> level));
-                        int ty = texel(py, (h + 2 * padding) >> level, padV, Math.max(1, h >> level));
-                        return TesseraCompat.abgr(images[level], ((column * w) >> level) + tx, ((row * h) >> level) + ty);
-                    };
-                } else {
-                    int frameX = column * w;
-                    int frameY = row * h;
-                    key = ((long) frameX << 32) | (frameY & 0xFFFFFFFFL);
-                    pixels = (level, px, py) -> TesseraCompat.abgr(images[level], (frameX >> level) + px, (frameY >> level) + py);
-                }
-                for (int level = 0; level <= frameLevels; level++) {
-                    int rw = (w + 2 * padding) >> level;
-                    int rh = (h + 2 * padding) >> level;
-                    if (rw < 1 || rh < 1 || ((rw | rh) & 3) != 0) {
-                        break;
+            int[][] pixels = new int[frameLevels + 1][];
+            int[] widths = new int[frameLevels + 1];
+            for (int level = 0; level <= frameLevels; level++) {
+                NativeImage image = images[level];
+                int iw = image.getWidth();
+                int ih = image.getHeight();
+                int[] copy = new int[iw * ih];
+                for (int y = 0; y < ih; y++) {
+                    for (int x = 0; x < iw; x++) {
+                        copy[y * iw + x] = TesseraCompat.abgr(image, x, y);
                     }
-                    byLevel.get(level).add(new PrecodeRegion(contents, key, frameLevels,
-                            copyOf(frameRgba(pixels, level, rw, rh)), rw, rh));
                 }
-                frames++;
+                pixels[level] = copy;
+                widths[level] = iw;
             }
-
-            // Blended frames: every step of every interpolated frame, looked up by content later.
             Object animation = stateBySprite.get(contents);
             AnimationReader.Timeline timeline = TesseraCompat.GPU_ANIMATION
                     ? (animation != null && AnimationReader.AVAILABLE ? AnimationReader.timeline(animation) : null)
                     : AnimationReader.legacyTimeline(contents);
-            if (timeline == null || !timeline.interpolated()) {
-                continue;
-            }
-            int[] indices = timeline.indices();
-            for (int i = 0; i < indices.length && blends < MAX_PRECODED_BLENDS; i++) {
-                int current = indices[i];
-                int next = indices[(i + 1) % indices.length];
-                int time = Math.max(1, timeline.times()[i]);
-                if (!TesseraCompat.GPU_ANIMATION && current == next) {
-                    continue; // vanilla uploads nothing between two equal frames
-                }
-                for (int subFrame = 0; subFrame < time && blends < MAX_PRECODED_BLENDS; subFrame++) {
-                    FramePixels pixels;
-                    if (TesseraCompat.GPU_ANIMATION) {
-                        float progress = (int) ((float) subFrame / time * 1000.0F) / 1000.0F;
-                        pixels = gpuFramePixels(images, w, h, padding, new AnimationReader.Frame(
-                                current % timeline.rowSize(), current / timeline.rowSize(),
-                                next % timeline.rowSize(), next / timeline.rowSize(), progress, true));
-                    } else {
-                        pixels = legacyBlendPixels(images, w, h, current, next, timeline.rowSize(), subFrame, time);
-                    }
-                    for (int level = 0; level <= frameLevels; level++) {
-                        int rw = (w + 2 * padding) >> level;
-                        int rh = (h + 2 * padding) >> level;
-                        if (rw < 1 || rh < 1 || ((rw | rh) & 3) != 0) {
-                            break;
-                        }
-                        ByteBuffer rgba = copyOf(frameRgba(pixels, level, rw, rh));
-                        long hash = contentHash(rgba, rw, rh, state.target());
-                        if (blendSeen.get(level).add(hash)) {
-                            byLevel.get(level).add(new PrecodeRegion(null, hash, frameLevels, rgba, rw, rh));
-                        }
-                    }
-                    blends++;
-                }
-            }
+            sprites.add(new SpriteSnapshot(contents, contents.width(), contents.height(), TesseraCompat.padding(sprite),
+                    Math.max(1, images[0].getWidth() / contents.width()), frameLevels,
+                    TesseraCompat.uniqueFrames(contents), timeline, pixels, widths));
         }
-        if (frames == 0) {
+        if (sprites.isEmpty()) {
             return;
         }
+        long readMillis = (System.nanoTime() - readStart) / 1_000_000;
         int startEpoch = epoch;
         CompressionPipeline.Target target = state.target();
         int quality = Config.get(Config.COMPRESSION_QUALITY);
-        int count = frames;
-        int blendCount = blends;
-        long readMillis = (System.nanoTime() - readStart) / 1_000_000;
         PENDING_UPGRADES.incrementAndGet();
         try {
             BEST_QUALITY.execute(() -> {
                 try {
                     long start = System.nanoTime();
+                    List<List<PrecodeRegion>> byLevel = new ArrayList<>();
+                    List<java.util.Set<Long>> blendSeen = new ArrayList<>();
+                    for (int level = 0; level <= levels; level++) {
+                        byLevel.add(new ArrayList<>());
+                        blendSeen.add(new java.util.HashSet<>());
+                    }
+                    int[] counts = new int[2]; // keyframes, blends
+                    for (SpriteSnapshot sprite : sprites) {
+                        collectRegions(sprite, target, byLevel, blendSeen, counts);
+                    }
                     List<ByteBuffer[]> encoded = new ArrayList<>();
                     for (int level = 0; level < byLevel.size(); level++) {
                         encoded.add(encodeStacked(byLevel.get(level), target, quality, level));
                     }
-                    LOGGER.info("Precoded {} animation frames and {} blended frames ({} mip level(s)): {} ms reading"
-                                    + " them on the render thread, {} ms encoding in the background.",
-                            count, blendCount, byLevel.size(), readMillis, (System.nanoTime() - start) / 1_000_000);
+                    LOGGER.info("Precoded {} animation frames and {} blended frames ({} mip level(s)): {} ms copying"
+                                    + " sprite images on the render thread, {} ms building and encoding in the background.",
+                            counts[0], counts[1], byLevel.size(), readMillis, (System.nanoTime() - start) / 1_000_000);
                     UPGRADES.add(() -> {
                         if (epoch != startEpoch) {
                             return; // a reload dropped these sprites
@@ -371,6 +332,80 @@ public final class CompressedAnimationUploader {
             });
         } catch (RejectedExecutionException e) {
             PENDING_UPGRADES.decrementAndGet();
+        }
+    }
+
+    /** Adds one sprite's keyframes (by sprite and frame) and blended frames (by content) to {@code byLevel}. */
+    private static void collectRegions(SpriteSnapshot sprite, CompressionPipeline.Target target,
+                                       List<List<PrecodeRegion>> byLevel, List<java.util.Set<Long>> blendSeen,
+                                       int[] counts) {
+        PixelSource source = sprite.source();
+        int w = sprite.width();
+        int h = sprite.height();
+        int padding = sprite.padding();
+        for (int frame : sprite.uniqueFrames()) {
+            int column = frame % sprite.columns();
+            int row = frame / sprite.columns();
+            long key;
+            FramePixels pixels;
+            if (TesseraCompat.GPU_ANIMATION) {
+                key = ((long) column << 32) | (row & 0xFFFFFFFFL);
+                pixels = gpuFramePixels(source, w, h, padding,
+                        new AnimationReader.Frame(column, row, column, row, 0.0F, false));
+            } else {
+                int frameX = column * w;
+                int frameY = row * h;
+                key = ((long) frameX << 32) | (frameY & 0xFFFFFFFFL);
+                pixels = (level, px, py) -> source.abgr(level, (frameX >> level) + px, (frameY >> level) + py);
+            }
+            for (int level = 0; level <= sprite.frameLevels(); level++) {
+                int rw = (w + 2 * padding) >> level;
+                int rh = (h + 2 * padding) >> level;
+                if (rw < 1 || rh < 1 || ((rw | rh) & 3) != 0) {
+                    break;
+                }
+                byLevel.get(level).add(new PrecodeRegion(sprite.owner(), key, sprite.frameLevels(),
+                        newFrameRgba(pixels, level, rw, rh), rw, rh));
+            }
+            counts[0]++;
+        }
+
+        AnimationReader.Timeline timeline = sprite.timeline();
+        if (timeline == null || !timeline.interpolated()) {
+            return;
+        }
+        int[] indices = timeline.indices();
+        for (int i = 0; i < indices.length && counts[1] < MAX_PRECODED_BLENDS; i++) {
+            int current = indices[i];
+            int next = indices[(i + 1) % indices.length];
+            int time = Math.max(1, timeline.times()[i]);
+            if (!TesseraCompat.GPU_ANIMATION && current == next) {
+                continue; // vanilla uploads nothing between two equal frames
+            }
+            for (int subFrame = 0; subFrame < time && counts[1] < MAX_PRECODED_BLENDS; subFrame++) {
+                FramePixels pixels;
+                if (TesseraCompat.GPU_ANIMATION) {
+                    float progress = (int) ((float) subFrame / time * 1000.0F) / 1000.0F;
+                    pixels = gpuFramePixels(source, w, h, padding, new AnimationReader.Frame(
+                            current % timeline.rowSize(), current / timeline.rowSize(),
+                            next % timeline.rowSize(), next / timeline.rowSize(), progress, true));
+                } else {
+                    pixels = legacyBlendPixels(source, w, h, current, next, timeline.rowSize(), subFrame, time);
+                }
+                for (int level = 0; level <= sprite.frameLevels(); level++) {
+                    int rw = (w + 2 * padding) >> level;
+                    int rh = (h + 2 * padding) >> level;
+                    if (rw < 1 || rh < 1 || ((rw | rh) & 3) != 0) {
+                        break;
+                    }
+                    ByteBuffer rgba = newFrameRgba(pixels, level, rw, rh);
+                    long hash = contentHash(rgba, rw, rh, target);
+                    if (blendSeen.get(level).add(hash)) {
+                        byLevel.get(level).add(new PrecodeRegion(null, hash, sprite.frameLevels(), rgba, rw, rh));
+                    }
+                }
+                counts[1]++;
+            }
         }
     }
 
@@ -464,7 +499,7 @@ public final class CompressedAnimationUploader {
         boolean keyframe = images == contents.byMipLevel;
         long key = ((long) frameX << 32) | (frameY & 0xFFFFFFFFL);
         FramePixels pixels = (level, px, py) -> TesseraCompat.abgr(images[level], (frameX >> level) + px, (frameY >> level) + py);
-        writeFrame(state, contents, keyframe, key, x, y, contents.width(), contents.height(), images.length - 1, pixels);
+        writeFrame(state, contents, keyframe, keyframe, key, x, y, contents.width(), contents.height(), images.length - 1, pixels);
         return true;
     }
 
@@ -495,9 +530,13 @@ public final class CompressedAnimationUploader {
             int w = contents.width();
             int h = contents.height();
             int padding = TesseraCompat.padding(sprite);
-            FramePixels pixels = gpuFramePixels(images, w, h, padding, frame);
+            FramePixels pixels = gpuFramePixels((level, px, py) -> TesseraCompat.abgr(images[level], px, py),
+                    w, h, padding, frame);
             long key = ((long) frame.column() << 32) | (frame.row() & 0xFFFFFFFFL);
-            writeFrame(state, contents, !frame.interpolated(), key, sprite.getX(), sprite.getY(),
+            // Interpolated sprites never draw a pure keyframe here: their smallest levels follow the
+            // start of each frame (progress 0) instead.
+            writeFrame(state, contents, !frame.interpolated(), !frame.interpolated() || frame.progress() == 0.0F,
+                    key, sprite.getX(), sprite.getY(),
                     w + 2 * padding, h + 2 * padding, images.length - 1, pixels);
         }
         return true;
@@ -509,19 +548,17 @@ public final class CompressedAnimationUploader {
      * padded region, the clamp-to-edge sampler fills the ring. Shared by drawing and precoding, so a
      * precoded frame hashes the same as the one drawn.
      */
-    private static FramePixels gpuFramePixels(NativeImage[] images, int w, int h, int padding, AnimationReader.Frame frame) {
+    private static FramePixels gpuFramePixels(PixelSource images, int w, int h, int padding, AnimationReader.Frame frame) {
         float padU = (float) padding / w;
         float padV = (float) padding / h;
         return (level, px, py) -> {
             int tx = texel(px, (w + 2 * padding) >> level, padU, Math.max(1, w >> level));
             int ty = texel(py, (h + 2 * padding) >> level, padV, Math.max(1, h >> level));
-            NativeImage image = images[level];
-            int current = TesseraCompat.abgr(image, ((frame.column() * w) >> level) + tx, ((frame.row() * h) >> level) + ty);
+            int current = images.abgr(level, ((frame.column() * w) >> level) + tx, ((frame.row() * h) >> level) + ty);
             if (!frame.interpolated()) {
                 return current;
             }
-            int next = TesseraCompat.abgr(image, ((frame.nextColumn() * w) >> level) + tx,
-                    ((frame.nextRow() * h) >> level) + ty);
+            int next = images.abgr(level, ((frame.nextColumn() * w) >> level) + tx, ((frame.nextRow() * h) >> level) + ty);
             return mix(current, next, frame.progress());
         };
     }
@@ -531,14 +568,14 @@ public final class CompressedAnimationUploader {
      * of a frame lasting {@code time} ticks: each colour channel {@code (int) (d * current + (1 - d) * next)}
      * with {@code d = 1 - subFrame / time}, alpha from the current frame.
      */
-    private static FramePixels legacyBlendPixels(NativeImage[] images, int w, int h, int current, int next,
+    private static FramePixels legacyBlendPixels(PixelSource images, int w, int h, int current, int next,
                                                  int rowSize, int subFrame, int time) {
         double d = 1.0 - (double) subFrame / time;
         int cx = (current % rowSize) * w, cy = (current / rowSize) * h;
         int nx = (next % rowSize) * w, ny = (next / rowSize) * h;
         return (level, px, py) -> {
-            int a = TesseraCompat.abgr(images[level], (cx >> level) + px, (cy >> level) + py);
-            int b = TesseraCompat.abgr(images[level], (nx >> level) + px, (ny >> level) + py);
+            int a = images.abgr(level, (cx >> level) + px, (cy >> level) + py);
+            int b = images.abgr(level, (nx >> level) + px, (ny >> level) + py);
             int out = a & 0xFF000000;
             for (int shift = 0; shift <= 16; shift += 8) {
                 int channel = (int) (d * ((a >>> shift) & 0xFF) + (1.0 - d) * ((b >>> shift) & 0xFF));
@@ -572,7 +609,10 @@ public final class CompressedAnimationUploader {
      * Writes one frame over the region at {@code (x, y)} of size {@code width x height}
      * (level 0; halved per level) at every compressed level the frame has.
      */
-    private static void writeFrame(AtlasState state, SpriteContents owner, boolean cacheable, long cacheKey,
+    /**
+     * @param updateDeep also patch the levels past the aligned ones (keyframes and frame starts only)
+     */
+    private static void writeFrame(AtlasState state, SpriteContents owner, boolean cacheable, boolean updateDeep, long cacheKey,
                                    int x, int y, int width, int height, int frameLevels, FramePixels pixels) {
         for (Runnable upgrade; (upgrade = UPGRADES.poll()) != null; ) {
             upgrade.run();
@@ -598,7 +638,12 @@ public final class CompressedAnimationUploader {
                 break; // same guard as vanilla's upload
             }
             if (level > state.alignedLevel()) {
-                patchDeepLevel(state, level, pixels, x >> level, y >> level, w, h, glFormat);
+                // The smallest levels, where the sprite shares 4x4 blocks with its neighbours, follow
+                // keyframes only: a blended step there is a couple of texels, and re-encoding its
+                // blocks every tick was most of what animations cost the render thread.
+                if (updateDeep) {
+                    patchDeepLevel(state, level, pixels, x >> level, y >> level, w, h, glFormat);
+                }
                 continue;
             }
             if (!isBlockAligned(x >> level, y >> level, w, h)) {
@@ -780,7 +825,18 @@ public final class CompressedAnimationUploader {
         GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, level, x0, y0, rw, rh, glFormat, blocks);
     }
 
-    /** One frame's pixels at a mip level as RGBA8, in the shared scratch buffer. */
+    /** One frame's pixels at a mip level as RGBA8, in a buffer of its own (any thread). */
+    private static ByteBuffer newFrameRgba(FramePixels pixels, int level, int w, int h) {
+        ByteBuffer rgba = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.LITTLE_ENDIAN);
+        for (int py = 0; py < h; py++) {
+            for (int px = 0; px < w; px++) {
+                rgba.putInt(pixels.abgr(level, px, py));
+            }
+        }
+        return rgba.flip();
+    }
+
+    /** One frame's pixels at a mip level as RGBA8, in the shared scratch buffer (render thread only). */
     private static ByteBuffer frameRgba(FramePixels pixels, int level, int w, int h) {
         int bytes = w * h * 4;
         if (rgbaScratch.capacity() < bytes) {

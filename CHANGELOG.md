@@ -11,7 +11,8 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   `CompressedAnimationUploader`, `AnimationReader` and the `SpriteContents.upload` mixin are back. Every keyframe is
   precoded once in the background when the atlas is registered, and so is every blended step of the interpolated
   ones (up to 16384 per atlas), each mip level's frames stacked in one native encode, so the render thread no longer
-  encodes them. On Fabric 1.21.11 the animation state is read through the access widener
+  encodes them; only copying the sprites' images stays on it. The smallest mip levels (where a sprite shares 4x4
+  blocks with its neighbours) follow frame starts only, not every blended step. On Fabric 1.21.11 the animation state is read through the access widener
   (`tessera-named-1.21.11.accesswidener`) instead of by name, which an intermediary-named production run would not
   find. Only BC1 and BC7 (4x4 blocks); with Kerria installed
   those atlases stay RGBA8888 and F3 shows their size. Frame 0 alone no longer decides BC1: every frame of an
