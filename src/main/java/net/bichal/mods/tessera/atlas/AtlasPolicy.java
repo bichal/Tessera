@@ -6,14 +6,17 @@ import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import java.util.Collection;
 
 /**
- * Which atlases Tessera compresses, split in two by what they hold.
+ * Which atlases Tessera compresses, and how their animated sprites are handled.
  *
  * <ul>
  *   <li>{@link Kind#STATIC}: no animated sprite. Compressed with the smallest format the content
  *       allows (see {@link AtlasFormats}).</li>
- *   <li>{@link Kind#ANIMATED}: at least one animated sprite. Stays RGBA8888 exactly as vanilla
- *       uploaded it, so animation frames are written the way vanilla (or Kerria) writes them: a
- *       block-compressed texture cannot take RGBA frame writes, nor be a render target (1.21.11+).</li>
+ *   <li>{@link Kind#ANIMATED}: at least one animated sprite (the block atlas: water, lava, fire).
+ *       Compressed too, by default: every animation frame is encoded once and written into the
+ *       atlas as compressed blocks ({@code CompressedAnimationUploader}). Left RGBA8888, exactly as
+ *       vanilla uploaded it, when Kerria is installed (it writes those frames as RGBA8888), when the
+ *       {@code compressAnimatedAtlases} setting is off, or when the format is not a 4x4-block one
+ *       (frames are written per 4x4 block).</li>
  * </ul>
  *
  * <p>The GUI atlas is tiny (about a megabyte), so compressing it saves almost
@@ -28,7 +31,7 @@ public final class AtlasPolicy {
     public enum Kind {
         /** No animated sprite: compressed. */
         STATIC,
-        /** Some animated sprite: left RGBA8888. */
+        /** Some animated sprite: compressed with its frames precoded, or left RGBA8888 (see {@link #mayCompressAnimated}). */
         ANIMATED
     }
 
@@ -46,10 +49,20 @@ public final class AtlasPolicy {
     }
 
     /**
-     * Whether any sprite of the atlas is animated. Such an atlas is never compressed: vanilla writes
-     * animation frames into it as RGBA8888 (Kerria does the same, faster), which a block-compressed
-     * texture cannot take.
+     * Whether an atlas with animated sprites may be compressed in {@code target}: the setting is on,
+     * Kerria (which writes frames as RGBA8888) is not installed, and the format has 4x4 blocks
+     * written per frame region (BC1, BC7). ASTC and one-bit alpha are left out: the per-frame
+     * encoders are BC1 and BC7, and mipmapped atlases never take one-bit alpha anyway.
      */
+    public static boolean mayCompressAnimated(net.bichal.mods.tessera.compress.CompressionPipeline.Target target) {
+        boolean wanted = net.bichal.mods.tessera.config.Config.get(net.bichal.mods.tessera.config.Config.COMPRESS_ANIMATED_ATLASES)
+                || Boolean.getBoolean("tessera.compressAnimated");
+        return wanted && !net.bichal.mods.tessera.compat.ModCompat.isKerriaLoaded()
+                && (target == net.bichal.mods.tessera.compress.CompressionPipeline.Target.BC1
+                || target == net.bichal.mods.tessera.compress.CompressionPipeline.Target.BC7);
+    }
+
+    /** Whether any sprite of the atlas is animated. */
     public static boolean holdsAnimations(Collection<TextureAtlasSprite> sprites) {
         for (var sprite : sprites) {
             if (TesseraCompat.isAnimated(sprite.contents())) {
@@ -57,6 +70,26 @@ public final class AtlasPolicy {
             }
         }
         return false;
+    }
+
+    /** Whether every frame of every animated sprite is fully opaque (frame 0 alone decides nothing for BC1). */
+    public static boolean animationFramesOpaque(Collection<TextureAtlasSprite> sprites) {
+        for (TextureAtlasSprite sprite : sprites) {
+            var contents = sprite.contents();
+            if (!TesseraCompat.isAnimated(contents)) {
+                continue;
+            }
+            for (int frame : TesseraCompat.uniqueFrames(contents)) {
+                for (int y = 0; y < contents.height(); y++) {
+                    for (int x = 0; x < contents.width(); x++) {
+                        if ((TesseraCompat.spriteAbgr(sprite, frame, x, y) >>> 24) != 0xFF) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     /** Bytes an RGBA8888 atlas of this size takes with levels 0 to {@code mipLevel}. */

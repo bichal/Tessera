@@ -7,9 +7,13 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Added
 
-- Static and animated atlases are split explicitly (`AtlasPolicy.Kind`): static ones are compressed, animated ones stay
-  RGBA8888 for vanilla or Kerria to write frames into. F3 shows the animated half's RGBA size next to the compressed
-  one.
+- Atlases with animated sprites (the block atlas) are compressed again, by default (`compressAnimatedAtlases`, on):
+  `CompressedAnimationUploader`, `AnimationReader` and the `SpriteContents.upload` mixin are back. Every keyframe is
+  precoded once in the background when the atlas is registered, each mip level's frames stacked in one native
+  encode, so the render thread no longer encodes keyframes. Only BC1 and BC7 (4x4 blocks); with Kerria installed
+  those atlases stay RGBA8888 and F3 shows their size. Frame 0 alone no longer decides BC1: every frame of an
+  animated sprite must be opaque. A chain served from the disk cache rebuilds the deep levels' RGBA it needs for
+  per-block frame patches.
 - BC1 with one-bit alpha (`BC1A`, `GL_COMPRESSED_RGBA_S3TC_DXT1_EXT`) for static atlases without mip levels whose texels
   are all fully opaque or fully transparent: 4 bits per texel instead of BC7's 8, alpha exact. It starts from the
   native (or Java) opaque BC1 encode and refits only the blocks with transparent texels. Below 32 dB PSNR on the

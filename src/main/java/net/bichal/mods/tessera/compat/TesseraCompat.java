@@ -43,7 +43,49 @@ public final class TesseraCompat {
             *///?} else
             false;
 
+    /** Animation frames are drawn into the atlas by GPU passes (TextureAtlas.uploadAnimationFrames). */
+    public static final boolean GPU_ANIMATION =
+            //? >=1.21.11 {
+            /*true;
+            *///?} else
+            false;
+
     private TesseraCompat() {
+    }
+
+    /** Indices of a sprite's distinct animation frames (an IntStream up to 1.21.10, an IntList after). */
+    public static int[] uniqueFrames(SpriteContents contents) {
+        Object frames = contents.getUniqueFrames();
+        if (frames instanceof java.util.stream.IntStream stream) {
+            return stream.toArray();
+        }
+        return ((it.unimi.dsi.fastutil.ints.IntCollection) frames).toIntArray();
+    }
+
+    /**
+     * 1.21.11+: each animation state of the atlas with its sprite. TextureAtlas.upload
+     * creates one state per animated sprite, in sprite order. Null when they do not
+     * pair up (then animations cannot be drawn on a compressed atlas); empty before 1.21.11.
+     */
+    public static IdentityHashMap<Object, TextureAtlasSprite> animatedSprites(TextureAtlas atlas) {
+        IdentityHashMap<Object, TextureAtlasSprite> result = new IdentityHashMap<>();
+        //? >=1.21.11 {
+        /*var accessor = (net.bichal.mods.tessera.mixin.TextureAtlasAccessor) atlas;
+        var states = accessor.tessera$animationStates();
+        int k = 0;
+        for (TextureAtlasSprite sprite : accessor.tessera$sprites()) {
+            if (sprite.contents().isAnimated()) {
+                if (k >= states.size()) {
+                    return null;
+                }
+                result.put(states.get(k++), sprite);
+            }
+        }
+        if (k != states.size()) {
+            return null;
+        }
+        *///?}
+        return result;
     }
 
     /** OpenGL name of a texture. */

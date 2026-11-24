@@ -3,6 +3,9 @@ package net.bichal.mods.tessera.selftest;
 import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compat.ModCompat;
 import net.bichal.mods.tessera.compat.TesseraCompat;
+import net.bichal.mods.tessera.atlas.AtlasPolicy;
+import net.bichal.mods.tessera.compress.CompressedAnimationUploader;
+import net.bichal.mods.tessera.compress.CompressedAnimationUploader.EncodeStats;
 import net.bichal.mods.tessera.compress.CompressedAtlases;
 import net.bichal.mods.tessera.atlas.AtlasFormats;
 import net.bichal.mods.tessera.compress.AstcGpuSupport;
@@ -46,8 +49,10 @@ import java.util.Map;
  *   <li>level 0, decoded by the driver, matches the static sprites (PSNR; small
  *       icon atlases such as mob_effects land near 29-31 dB at the default quality,
  *       a broken or misplaced upload well under 20);</li>
- *   <li>an atlas that holds animated sprites was left as RGBA8: animations are never
- *       compressed (vanilla, or Kerria, writes their frames).</li>
+ *   <li>animations keep running on compressed atlases: after ticking the atlas, animated
+ *       sprites show one of their frames, and some changed;</li>
+ *   <li>an atlas with animated sprites that Tessera leaves alone (Kerria installed, setting
+ *       off) is still plain RGBA8.</li>
  * </ul>
  * Writes {@code tessera-selftest.txt} in the game directory; its first line ends
  * with PASS or FAIL.
@@ -57,8 +62,8 @@ public final class TesseraSelfTest {
     public static final boolean ENABLED = Boolean.getBoolean("tessera.selftest");
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Tessera/SelfTest");
-    private static final int SETTLE_TICKS = 200, GIVE_UP_TICKS = 6000;
-    private static final double MIN_STATIC_PSNR = 28.0;
+    private static final int SETTLE_TICKS = 200, GIVE_UP_TICKS = 6000, ANIMATION_TICKS = 60;
+    private static final double MIN_STATIC_PSNR = 28.0, MIN_FRAME_PSNR = 20.0;
     // BC1 stores 4 bits per texel (BC7: 8): detailed opaque atlases such as paintings land near 25 dB.
     private static final double MIN_STATIC_PSNR_BC1 = 24.0;
     private static final int GL_COMPRESSED_RGB_S3TC_DXT1 = 0x83F0, GL_COMPRESSED_RGBA_S3TC_DXT1 = 0x83F1;
@@ -67,7 +72,7 @@ public final class TesseraSelfTest {
     // on 1.21 - 1.21.1 the first reload runs during mod loading, when NeoForge's bus
     // still drops events, so the early atlases' events never arrive.
     private static int seenRegistrations = -1;
-    private static int ticks, lastCompressedTick = -1;
+    private static int ticks, lastCompressedTick = -1, animatedChanged;
     private static boolean done;
 
     private TesseraSelfTest() {
@@ -189,16 +194,25 @@ public final class TesseraSelfTest {
         if (CompressedAtlases.registrations() != seenRegistrations) {
             seenRegistrations = CompressedAtlases.registrations();
             lastCompressedTick = ticks;
+            EncodeStats.reset();
         }
-        // Atlases with animations stay RGBA8, so the block atlas is never among the compressed ones:
-        // settle once some atlas was compressed and no more arrive.
-        boolean settled = !overlayShown(mc) && !CompressedAtlases.all().isEmpty()
-                && ticks - lastCompressedTick >= SETTLE_TICKS;
+        // The block atlas is the largest and usually the last one done: compressed, or kept as RGBA8
+        // when its animations are left to vanilla (or Kerria). Then wait for the frame precode.
+        boolean blocksDone = CompressedAtlases.all().keySet().stream().anyMatch(atlas -> isBlocks(atlas.location().toString()))
+                || CompressedAtlases.keptForAnimations().stream().anyMatch(atlas -> isBlocks(atlas.location().toString()));
+        boolean settled = !overlayShown(mc) && blocksDone && ticks - lastCompressedTick >= SETTLE_TICKS
+                && CompressedAnimationUploader.pendingUpgrades() == 0;
         if (!settled && ticks < GIVE_UP_TICKS) {
             return;
         }
         done = true;
         List<String> lines = new ArrayList<>();
+        // Steady state since the last atlas was compressed: what animations cost per client tick.
+        int window = Math.max(1, ticks - lastCompressedTick);
+        lines.add(String.format("animation encoding on the render thread over %d ticks: %d encodes (%d more found"
+                        + " by content), %.3f ms per tick (largest %.3f ms); native encodes in the background: %d, %.1f ms",
+                window, EncodeStats.calls, EncodeStats.found, EncodeStats.nanos / 1e6 / window,
+                EncodeStats.maxNanos / 1e6, EncodeStats.bestCalls(), EncodeStats.bestNanos() / 1e6));
         boolean pass;
         try {
             pass = check(lines);
@@ -231,14 +245,14 @@ public final class TesseraSelfTest {
             return false;
         }
         boolean ok = true;
-        // Animated textures stay RGBA8888: no compressed atlas may hold an animated sprite...
-        for (TextureAtlas atlas : compressed.keySet()) {
-            if (TesseraCompat.textures(atlas).stream().anyMatch(sprite -> TesseraCompat.isAnimated(sprite.contents()))) {
-                out.add(atlas.location() + " holds animated sprites but was compressed");
-                ok = false;
-            }
+        // The block atlas is compressed whenever its animations may be (no Kerria, setting on, BC formats).
+        CompressionPipeline.Target blocksFormat = AtlasFormats.choose(false);
+        if (blocksFormat != null && AtlasPolicy.mayCompressAnimated(blocksFormat)
+                && compressed.keySet().stream().noneMatch(atlas -> isBlocks(atlas.location().toString()))) {
+            out.add("the block atlas was not compressed");
+            ok = false;
         }
-        // ...and the atlases that were skipped for holding some are still plain RGBA8.
+        // The atlases left alone for their animations are still plain RGBA8.
         for (TextureAtlas atlas : CompressedAtlases.keptForAnimations()) {
             TesseraCompat.bindTexture(TesseraCompat.glId(atlas));
             int format = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_INTERNAL_FORMAT);
@@ -248,8 +262,17 @@ public final class TesseraSelfTest {
             ok &= rgba;
         }
         out.add("Kerria installed: " + ModCompat.isKerriaLoaded());
+        boolean anyAnimated = false;
         for (var entry : compressed.entrySet()) {
             ok &= checkAtlas(entry.getKey().location().toString(), entry.getKey(), entry.getValue(), out);
+            anyAnimated |= TesseraCompat.textures(entry.getKey()).stream()
+                    .anyMatch(sprite -> TesseraCompat.isAnimated(sprite.contents()));
+        }
+        // Some animations are slow (a GUI icon may hold a frame for seconds), but
+        // across every compressed atlas some must have moved on.
+        if (anyAnimated && animatedChanged == 0) {
+            out.add("no animated sprite changed in any compressed atlas");
+            ok = false;
         }
         return ok;
     }
@@ -289,10 +312,15 @@ public final class TesseraSelfTest {
 
         ByteBuffer pixels = readLevel0(width, height);
         try {
-            // The decoded atlas against the sprites' own pixels.
+            // Static sprites: the decoded atlas against the sprites' own pixels.
+            List<TextureAtlasSprite> animated = new ArrayList<>();
             Error staticError = new Error();
             for (TextureAtlasSprite sprite : TesseraCompat.textures(atlas)) {
-                compare(pixels, width, sprite, 0, staticError);
+                if (TesseraCompat.isAnimated(sprite.contents())) {
+                    animated.add(sprite);
+                } else {
+                    compare(pixels, width, sprite, 0, staticError);
+                }
             }
             double staticPsnr = staticError.psnr();
             // BC1 (with or without alpha) and ASTC 6x6 store 4 bits per texel or less, BC7 and ASTC 4x4 eight.
@@ -307,6 +335,9 @@ public final class TesseraSelfTest {
             ok &= staticOk;
             if (DUMP_DIR != null) {
                 dump(name, expectedFormat, atlas, pixels, width, height);
+            }
+            if (!animated.isEmpty()) {
+                ok &= checkAnimations(name, atlas, glId, width, height, pixels, animated, out);
             }
         } finally {
             MemoryUtil.memFree(pixels);
@@ -342,6 +373,59 @@ public final class TesseraSelfTest {
         } finally {
             MemoryUtil.memFree(original);
         }
+    }
+
+    /** Ticks the atlas (as the client does every tick) and checks the animated sprites. */
+    private static boolean checkAnimations(String name, TextureAtlas atlas, int glId, int width, int height,
+                                           ByteBuffer before, List<TextureAtlasSprite> animated, List<String> out) {
+        for (int i = 0; i < ANIMATION_TICKS; i++) {
+            atlas.tick();
+        }
+        TesseraCompat.bindTexture(glId);
+        ByteBuffer after = readLevel0(width, height);
+        try {
+            int changed = 0, matching = 0;
+            List<String> mismatched = new ArrayList<>();
+            for (TextureAtlasSprite sprite : animated) {
+                if (differs(before, after, width, sprite)) {
+                    changed++;
+                }
+                double best = 0.0;
+                for (int frame : TesseraCompat.uniqueFrames(sprite.contents())) {
+                    Error e = new Error();
+                    compare(after, width, sprite, frame, e);
+                    best = Math.max(best, e.psnr());
+                }
+                if (best >= MIN_FRAME_PSNR) {
+                    matching++;
+                } else {
+                    mismatched.add(String.format("%s %.1f dB (%dx%d at %d,%d, %d frames)", sprite.contents().name(), best,
+                            sprite.contents().width(), sprite.contents().height(), sprite.getX(), sprite.getY(),
+                            TesseraCompat.uniqueFrames(sprite.contents()).length));
+                }
+            }
+            animatedChanged += changed;
+            boolean ok = matching == animated.size();
+            out.add(String.format("%s: %d animated sprites, %d changed after %d ticks, %d show one of their frames%s",
+                    name, animated.size(), changed, ANIMATION_TICKS, matching, ok ? "" : " FAIL:"));
+            mismatched.forEach(m -> out.add("    " + m));
+            return ok;
+        } finally {
+            MemoryUtil.memFree(after);
+        }
+    }
+
+    private static boolean differs(ByteBuffer a, ByteBuffer b, int atlasWidth, TextureAtlasSprite sprite) {
+        int padding = TesseraCompat.padding(sprite);
+        for (int y = 0; y < sprite.contents().height(); y++) {
+            int row = ((sprite.getY() + padding + y) * atlasWidth + sprite.getX() + padding) * 4;
+            for (int x = 0; x < sprite.contents().width(); x++) {
+                if (a.getInt(row + x * 4) != b.getInt(row + x * 4)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** Level 0 of the bound texture as RGBA8, decoded by the driver. */

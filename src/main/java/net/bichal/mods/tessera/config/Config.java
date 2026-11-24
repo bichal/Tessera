@@ -14,6 +14,7 @@ public final class Config {
     public static final Setting<Integer> VRAM_BUDGET_TARGET_MB;
     public static final Setting<String> CACHE_DIRECTORY;
     public static final Setting<Boolean> DISABLE_NATIVE_COMPRESSION;
+    public static final Setting<Boolean> COMPRESS_ANIMATED_ATLASES;
     public static final Setting<Boolean> SHOW_EXTENDED_DEBUG_BREAKDOWN;
 
     //? if fabric {
@@ -22,6 +23,8 @@ public final class Config {
                 "BC7 compression quality preset, 0 (fastest, lowest fidelity) to 7 (slowest, highest fidelity).");
         DISABLE_NATIVE_COMPRESSION = FabricConfig.bool("compression.disableNativeCompression", false,
                 "Disables all atlas compression (native and pure-Java): atlases stay vanilla RGBA8.");
+        COMPRESS_ANIMATED_ATLASES = FabricConfig.bool("compression.compressAnimatedAtlases", true,
+                "Also compress atlases that hold animated textures (the block atlas): frames are encoded once and written as compressed blocks. Off keeps those atlases RGBA8888. Ignored while Kerria is installed.");
         DEDUP_SIMILARITY_THRESHOLD = FabricConfig.integer("deduplication.dedupSimilarityThreshold", 6, 0, 64,
                 "Maximum Hamming distance, 0 to 64, between two 64-bit pHash fingerprints for sprites to count as duplicates.");
         VRAM_BUDGET_TARGET_MB = FabricConfig.integer("vramBudget.vramBudgetTargetMb", 2048, 256, 16384,
@@ -53,6 +56,15 @@ public final class Config {
                 .comment("Disables all atlas compression (native and pure-Java): atlases stay vanilla RGBA8.")
                 .translation("tessera.configuration.disableNativeCompression")
                 .define("disableNativeCompression", false));
+
+        COMPRESS_ANIMATED_ATLASES = wrap(builder
+                .comment(
+                        "Also compress atlases that hold animated textures (the block atlas): each animation frame is",
+                        "encoded once and written as compressed blocks. Off keeps those atlases RGBA8888.",
+                        "Ignored while Kerria is installed (Kerria writes frames into those atlases as RGBA8888)."
+                )
+                .translation("tessera.configuration.compressAnimatedAtlases")
+                .define("compressAnimatedAtlases", true));
 
         builder.pop();
 
@@ -113,10 +125,10 @@ public final class Config {
      * everything but the debug overlay. A change of any of them reloads resources.
      */
     public record ReloadSensitiveSnapshot(String cacheDirectory, int compressionQuality, boolean disableNativeCompression,
-                                          int dedupSimilarityThreshold, int vramBudgetTargetMb) {
+                                          boolean compressAnimatedAtlases, int dedupSimilarityThreshold, int vramBudgetTargetMb) {
         public static ReloadSensitiveSnapshot capture() {
             return new ReloadSensitiveSnapshot(get(CACHE_DIRECTORY), get(COMPRESSION_QUALITY),
-                    get(DISABLE_NATIVE_COMPRESSION),
+                    get(DISABLE_NATIVE_COMPRESSION), get(COMPRESS_ANIMATED_ATLASES),
                     get(DEDUP_SIMILARITY_THRESHOLD), get(VRAM_BUDGET_TARGET_MB));
         }
     }

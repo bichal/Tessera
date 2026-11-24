@@ -1,18 +1,22 @@
 # How it works
 
-- Atlases are split in two by what they hold:
-  - **Static atlases** (no animated texture) are re-encoded after vanilla's upload, with their full mip chain, in the
-    smallest format their content allows.
-  - **Animated atlases** (any animated texture, such as the block atlas with water, lava and fire) are never
-    compressed: they stay RGBA8888, so animation frames reach them the way vanilla writes them.
-    [Kerria](https://modrinth.com/mod/kerria-opt) speeds up exactly that upload, so the two work side by side:
-    Tessera on the static atlases, Kerria on the animated ones. F3 shows both halves.
+- Every atlas is re-encoded after vanilla's upload, with its full mip chain, in the smallest format its content
+  allows, including atlases that hold animated textures, such as the block atlas with water, lava and fire:
+  - Each animation frame is **precoded**: when the atlas is compressed, every frame of every animated texture is
+    encoded once in the background (all of a mip level's frames in one call to the native encoder). From then on a
+    frame change is a small upload of blocks already encoded, with no encoding on the render thread. Blended frames
+    (interpolated animations) are encoded the first time they appear and reused when they come back.
+  - Frames are written per 4x4 block, so atlases with animations use BC1 or BC7; on GPUs with only ASTC they stay
+    RGBA8888.
+  - With [Kerria](https://modrinth.com/mod/kerria-opt) installed, atlases with animated textures stay RGBA8888, since
+    Kerria writes their frames as RGBA8888; Tessera compresses the rest. The `compressAnimatedAtlases` setting
+    turns the frame path off.
 
   An atlas stays one texture: chunks, items, particles, Sodium and shader packs all sample a single texture per
-  atlas, so its animated sprites cannot be moved to a second one without changing how the game renders.
-- The format of a static atlas follows its content and the GPU:
+  atlas, so its animated sprites cannot be moved to a second texture without changing how the game renders.
+- The format follows the content and the GPU:
 
-  | Static atlas | PC graphics cards | ARM GPUs (ASTC) |
+  | Atlas | PC graphics cards | ARM GPUs (ASTC) |
   |---|---|---|
   | all texels opaque | BC1, 4 bits per texel | ASTC 6x6, 3.56 bits per texel |
   | texels opaque or fully transparent, no mipmaps | BC1 with 1-bit alpha, 4 bits per texel | ASTC 4x4, 8 bits per texel |
