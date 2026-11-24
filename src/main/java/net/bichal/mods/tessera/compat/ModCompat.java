@@ -8,8 +8,9 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Kerria replaces how animation frames reach the atlas (GPU-side copies of
  * cached frames, persistently mapped upload buffers). Both assume the atlas is
- * plain RGBA8, so while it is installed Tessera leaves every atlas that holds
- * animated sprites alone.
+ * plain RGBA8. Tessera splits atlases in two and only compresses the static
+ * ones (no animated sprite), so every atlas Kerria writes frames into stays
+ * exactly as vanilla uploaded it, with or without Kerria.
  */
 public final class ModCompat {
 

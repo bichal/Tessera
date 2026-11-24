@@ -23,8 +23,13 @@ import java.nio.ByteOrder;
 final class CacheCodec {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Tessera/CacheCodec");
-    /** zstd's default level: the smallest entries for a write that happens once, off the render thread. */
-    private static final int LEVEL = 3;
+    /**
+     * An entry is written once, off the render thread, and read on every later launch, whose cost
+     * does not depend on the level: a higher level than zstd's default (3) gives smaller entries
+     * for a few more milliseconds per atlas on the first launch. Deflate (the fallback) takes 9 as
+     * its maximum.
+     */
+    private static final int LEVEL = 9;
     private static final int COPY_CHUNK = 1 << 20;
 
     private CacheCodec() {

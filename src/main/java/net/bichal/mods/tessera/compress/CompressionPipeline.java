@@ -3,6 +3,7 @@ package net.bichal.mods.tessera.compress;
 import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compress.backend.CompressionBackend;
 import net.bichal.mods.tessera.compress.backend.TesseraRuntime;
+import net.bichal.mods.tessera.compress.software.Bc1PunchThrough;
 import net.bichal.mods.tessera.compress.software.TransparentTexelBleed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +32,12 @@ public final class CompressionPipeline {
         /** 8 bits per texel, alpha. ASTC LDR: mobile and Apple GPUs (Android, Apple Silicon). */
         ASTC_4X4(4, 4, 16, AtlasCache.CompressedFormat.ASTC_4X4),
         /** 3.56 bits per texel, for opaque atlases: about BC1's size with ASTC's quality. */
-        ASTC_6X6(6, 6, 16, AtlasCache.CompressedFormat.ASTC_6X6);
+        ASTC_6X6(6, 6, 16, AtlasCache.CompressedFormat.ASTC_6X6),
+        /**
+         * 4 bits per texel with one-bit alpha (BC1 punch-through). S3TC: desktop GPUs. For atlases whose
+         * texels are all fully opaque or fully transparent: alpha comes back exactly, at half of BC7's size.
+         */
+        BC1_ALPHA(4, 4, 8, AtlasCache.CompressedFormat.BC1A);
 
         private final int blockWidth;
         private final int blockHeight;
@@ -89,13 +95,14 @@ public final class CompressionPipeline {
                 case BC7 -> org.lwjgl.opengl.GL42.GL_COMPRESSED_RGBA_BPTC_UNORM;
                 case ASTC_4X4 -> org.lwjgl.opengl.KHRTextureCompressionASTCLDR.GL_COMPRESSED_RGBA_ASTC_4x4_KHR;
                 case ASTC_6X6 -> org.lwjgl.opengl.KHRTextureCompressionASTCLDR.GL_COMPRESSED_RGBA_ASTC_6x6_KHR;
+                case BC1_ALPHA -> org.lwjgl.opengl.EXTTextureCompressionS3TC.GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
             };
         }
 
         /** Whether the driver can take this format. Needs {@code Tessera#warmUpGl()} to have run on the render thread. */
         public boolean gpuSupported() {
             return switch (this) {
-                case BC1 -> Bc1TextureFormatSupport.isSupported();
+                case BC1, BC1_ALPHA -> Bc1TextureFormatSupport.isSupported();
                 case BC7 -> Bc7GpuSupport.isSupported();
                 case ASTC_4X4, ASTC_6X6 -> AstcGpuSupport.isSupported();
             };
@@ -146,6 +153,13 @@ public final class CompressionPipeline {
             LOGGER.warn("Compression failed for atlas '{}' ({} path) on every backend", atlasKey, target);
             return null;
         }
+        if (target == Target.BC1_ALPHA) {
+            // null when the result would look worse than the floor: the caller encodes BC7 instead.
+            compressed = punchThrough(atlasKey, toDirect(compressed), input, width, height);
+            if (compressed == null) {
+                return null;
+            }
+        }
         return toDirect(compressed);
     }
 
@@ -153,11 +167,32 @@ public final class CompressionPipeline {
                                      int height, int quality, boolean guardQuality) {
         return switch (target) {
             case BC7 -> backend.compressBc7(input, width, height, quality);
-            case BC1 -> backend.compressBc1(input, width, height, quality);
+            // BC1_ALPHA starts from the opaque encode; compressBlocking adds the alpha afterwards.
+            case BC1, BC1_ALPHA -> backend.compressBc1(input, width, height, quality);
             case ASTC_4X4, ASTC_6X6 -> backend.supportsAstc()
                     ? backend.compressAstc(input, width, height, target.blockWidth(), target.blockHeight(), quality, guardQuality)
                     : null;
         };
+    }
+
+    /**
+     * Below this PSNR (visible texels' colour) a punch-through encode is refused and the atlas is
+     * encoded as BC7 instead. BC1 lands well above it on Minecraft's pixel art; a detailed,
+     * smoothly shaded texture pack may not.
+     */
+    static final double MIN_PUNCH_THROUGH_PSNR = 32.0;
+
+    private static ByteBuffer punchThrough(String atlasKey, ByteBuffer opaqueBlocks, ByteBuffer input, int width, int height) {
+        Bc1PunchThrough.Result result = Bc1PunchThrough.encode(input, width, height, opaqueBlocks);
+        if (result == null) {
+            return null;
+        }
+        if (result.visiblePsnr() < MIN_PUNCH_THROUGH_PSNR) {
+            LOGGER.info("Atlas '{}': BC1 with 1-bit alpha reaches {} dB (floor {}); encoding BC7 instead.",
+                    atlasKey, String.format("%.1f", result.visiblePsnr()), MIN_PUNCH_THROUGH_PSNR);
+            return null;
+        }
+        return result.blocks();
     }
 
     private static ByteBuffer toDirect(ByteBuffer buffer) {

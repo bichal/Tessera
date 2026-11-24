@@ -367,7 +367,9 @@ public final class AtlasCache {
         BC1(".bc1"),
         BC7(".bc7"),
         ASTC_4X4(".astc4"),
-        ASTC_6X6(".astc6");
+        ASTC_6X6(".astc6"),
+        /** BC1 with one-bit alpha (texels fully opaque or fully transparent). Last: the ordinal is on disk. */
+        BC1A(".bc1a");
 
         private final String extension;
 

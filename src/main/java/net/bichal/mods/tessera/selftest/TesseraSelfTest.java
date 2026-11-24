@@ -295,8 +295,9 @@ public final class TesseraSelfTest {
                 compare(pixels, width, sprite, 0, staticError);
             }
             double staticPsnr = staticError.psnr();
-            // BC1 and ASTC 6x6 store 4 bits per texel or less, BC7 and ASTC 4x4 eight.
+            // BC1 (with or without alpha) and ASTC 6x6 store 4 bits per texel or less, BC7 and ASTC 4x4 eight.
             boolean smallFormat = expectedFormat == CompressionPipeline.Target.BC1
+                    || expectedFormat == CompressionPipeline.Target.BC1_ALPHA
                     || expectedFormat == CompressionPipeline.Target.ASTC_6X6;
             double minStatic = smallFormat ? MIN_STATIC_PSNR_BC1 : MIN_STATIC_PSNR;
             boolean staticOk = staticPsnr >= minStatic;

@@ -109,8 +109,7 @@ public final class Tessera {
      * {@link #onConfigReloading} that acted on a change). Compared against
      * the just-reloaded values in {@link #onConfigReloading} to decide
      * whether a resource reload is actually warranted -- see
-     * {@link Config.ReloadSensitiveSnapshot} for which settings this
-     * covers and why only those two.
+     * {@link Config.ReloadSensitiveSnapshot} for which settings this covers.
      */
     private Config.ReloadSensitiveSnapshot lastAppliedSettings;
 
@@ -151,23 +150,11 @@ public final class Tessera {
     }
 
     /**
-     * Fires whenever {@link Config#SPEC}'s backing file changes on disk,
-     * including the {@code ConfigurationScreen}'s save-on-close path.
-     * Triggers a client resource reload only when one of
-     * {@link Config.ReloadSensitiveSnapshot}'s two settings actually
-     * changed value -- {@link Config#CACHE_DIRECTORY} (so
-     * {@link AtlasCompressionDriver#cache()} rebuilds against the new
-     * directory instead of staying pinned to whichever one was first read
-     * this session) and {@link Config#DISABLE_ANIMATIONS} (so
-     * {@code SpriteRoutingMixin} re-evaluates which sprites are eligible
-     * for the static split). Every other setting in this spec is either
-     * read fresh next time it's needed with no reload required
-     * ({@code compressionQuality}, {@code vramBudgetTargetMb}, dedup
-     * settings) or purely cosmetic ({@code showExtendedDebugBreakdown}) --
-     * forcing a reload for those would stall a frame on every settings
-     * screen close for no behavioral change.
+     * Fires whenever {@link Config#SPEC}'s backing file changes on disk, including the
+     * {@code ConfigurationScreen}'s save-on-close path. Reloads resources only when one of
+     * {@link Config.ReloadSensitiveSnapshot}'s settings changed value (see
+     * {@link #applySettingsChange}); the debug overlay setting is read every frame and needs none.
      */
-    @SuppressWarnings("JavadocReference")
     private void onConfigReloading(ModConfigEvent.Reloading event) {
         if (event.getConfig().getSpec() != Config.SPEC) {
             return;

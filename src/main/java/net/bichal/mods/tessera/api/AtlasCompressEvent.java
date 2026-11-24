@@ -23,9 +23,12 @@ import java.util.function.Consumer;
  * <ul>
  *   <li>{@link Pre}: before compression starts. Cancel it to keep this atlas
  *       uncompressed, or change {@link Pre#setTargetFormat the format}. BC1 has
- *       no alpha channel, so choose it only for atlases without transparency.</li>
+ *       no alpha channel, so choose it only for atlases without transparency;
+ *       BC1A keeps one bit of alpha (texels fully opaque or fully transparent).
+ *       Only static atlases get here: atlases with animated sprites stay RGBA8888.</li>
  *   <li>{@link Post}: after the compressed chain has been uploaded, with the
- *       VRAM it saved and now occupies.</li>
+ *       format actually applied (BC7 when BC1A was refused for its quality),
+ *       the VRAM it saved and the VRAM it now occupies.</li>
  * </ul>
  * On Minecraft 1.21 - 1.21.1 the first resource reload runs while mods are still
  * loading, and NeoForge's bus drops events posted before loading ends: the events

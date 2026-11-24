@@ -1,5 +1,7 @@
 package net.bichal.mods.tessera.gui;
 
+import net.bichal.mods.tessera.compat.ModCompat;
+import net.bichal.mods.tessera.compress.CompressedAtlases;
 import net.bichal.mods.tessera.config.Config;
 import net.bichal.mods.tessera.vram.VramBudgetEngine;
 import org.lwjgl.opengl.GL;
@@ -7,7 +9,6 @@ import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -84,20 +85,17 @@ public final class DebugOverlay {
         return Map.copyOf(perAtlasStats);
     }
 
-    /** Compression status, atlas VRAM, budget and GPU memory. */
+    /** Compression status, atlas VRAM (static atlases compressed, animated ones RGBA), budget and GPU memory. */
     public static List<String> summaryLines() {
         List<String> lines = new ArrayList<>();
         lines.add("§d[Tessera]");
 
         int budgetTargetMB = VramBudgetEngine.getEffectiveBudgetMb();
-        boolean isMac = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac");
 
-        if (isMac) {
-            lines.add("Compression: §cUNSUPPORTED (macOS)§r");
-        } else if (!isCompressedAtlasActive || bytesSavedByBC7 <= 0) {
+        // Whether anything was compressed is what counts, not the platform: macOS takes BC1 for
+        // opaque atlases, ARM GPUs take ASTC.
+        if (!isCompressedAtlasActive || bytesSavedByBC7 <= 0) {
             lines.add("Compression: §cDISABLED§r");
-            lines.add(String.format("VRAM Budget: %d MB", budgetTargetMB));
-            lines.add("VRAM: " + getHardwareVramUsage());
         } else {
             lines.add("Compression: §aENABLED§r");
 
@@ -109,10 +107,14 @@ public final class DebugOverlay {
             lines.add(String.format("Atlas VRAM: §b%.2f MB§r / §7%.2f MB§r (§a-%.1f%%§r)",
                     compressedMB, originalMB, percentageSaved));
             lines.add(String.format("Saved: §a%.2f MB§r", savedMB));
-            lines.add(String.format("VRAM Budget: %d MB", budgetTargetMB));
-
-            lines.add("GPU VRAM: " + getHardwareVramUsage());
         }
+        long animatedBytes = CompressedAtlases.keptForAnimationsBytes();
+        if (animatedBytes > 0) {
+            lines.add(String.format("Animated atlases (RGBA): §7%.2f MB§r%s", animatedBytes / (1024.0 * 1024.0),
+                    ModCompat.isKerriaLoaded() ? " §7(Kerria)§r" : ""));
+        }
+        lines.add(String.format("VRAM Budget: %d MB", budgetTargetMB));
+        lines.add("GPU VRAM: " + getHardwareVramUsage());
         return lines;
     }
 

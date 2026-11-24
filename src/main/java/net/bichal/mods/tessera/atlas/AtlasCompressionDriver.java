@@ -152,9 +152,14 @@ public final class AtlasCompressionDriver {
 
     /**
      * What identifies an atlas for the whole-chain cache: a digest of its layout and every
-     * sprite's pixels, and whether all of them are opaque (which decides the format).
+     * sprite's pixels, and what their alpha holds (which decides the format).
      */
-    public record Fingerprint(String digest, boolean opaque) {
+    public record Fingerprint(String digest, AtlasFormats.Alpha alpha) {
+
+        /** Every sprite texel has alpha 255. */
+        public boolean opaque() {
+            return alpha == AtlasFormats.Alpha.OPAQUE;
+        }
     }
 
     /**
@@ -170,7 +175,7 @@ public final class AtlasCompressionDriver {
                 .putInt(Config.get(Config.DEDUP_SIMILARITY_THRESHOLD).hashCode()).putInt(regions.size());
         digest.update(head.array());
 
-        boolean opaque = true;
+        AtlasFormats.Alpha alpha = AtlasFormats.Alpha.OPAQUE;
         byte[] row = new byte[0];
         for (TextureAtlasSprite sprite : regions) {
             int padding = TesseraCompat.padding(sprite);
@@ -190,29 +195,37 @@ public final class AtlasCompressionDriver {
                 rowView.clear();
                 for (int x = 0; x < width; x++) {
                     int abgr = TesseraCompat.spriteAbgr(sprite, 0, Math.max(0, Math.min(maxX, x - padding)), sy);
-                    opaque &= (abgr >>> 24) == 0xFF;
+                    alpha = alpha.with(abgr >>> 24);
                     rowView.putInt(abgr);
                 }
                 digest.update(row, 0, width * 4);
             }
         }
-        return new Fingerprint(TesseraHasher.hex(digest), opaque);
-    }
-
-    private static String chainKey(Fingerprint fingerprint, int quality) {
-        return fingerprint.digest() + "-chain-q" + quality + (TesseraRuntime.isNativeActive() ? "n" : "s") + CACHE_VERSION;
+        return new Fingerprint(TesseraHasher.hex(digest), alpha);
     }
 
     /**
-     * The encoded chain stored for this exact atlas, or {@code null} when there is none, it does
-     * not fit the VRAM budget, or it cannot be read; the caller then assembles and encodes.
+     * @param refused the chain of the fallback format for an atlas whose chosen format refused it
+     *                (kept apart, so it is never served for an atlas that format would take)
+     */
+    private static String chainKey(Fingerprint fingerprint, int quality, boolean refused) {
+        return fingerprint.digest() + "-chain-q" + quality + (TesseraRuntime.isNativeActive() ? "n" : "s") + CACHE_VERSION
+                + (refused ? "-r" : "");
+    }
+
+    /**
+     * The encoded chain stored for this exact atlas, or {@code null} when there is none or it
+     * cannot be read; the caller then assembles and encodes.
+     *
+     * @param refused look for the chain stored after the preferred format refused this atlas
      */
     public static CompressedAtlas loadChain(
-            String atlasLocation, CompressionPipeline.Target target, Fingerprint fingerprint, int requestedMaxLevel
+            String atlasLocation, CompressionPipeline.Target target, Fingerprint fingerprint, int requestedMaxLevel,
+            boolean refused
     ) {
         int quality = Config.get(Config.COMPRESSION_QUALITY);
         try {
-            var hit = cache().readChain(chainKey(fingerprint, quality), target.cacheFormat(), quality);
+            var hit = cache().readChain(chainKey(fingerprint, quality, refused), target.cacheFormat(), quality);
             if (hit.isEmpty()) {
                 return null;
             }
@@ -226,9 +239,8 @@ public final class AtlasCompressionDriver {
                 resident += stored.blocks().remaining();
                 levels.add(new CompressedLevel(level, stored.width(), stored.height(), stored.blocks()));
             }
-            if (!VramBudgetEngine.isWithinBudget(atlasLocation, resident)) {
-                return null;
-            }
+            // Advisory only: the compressed chain always takes less than the RGBA atlas it replaces.
+            VramBudgetEngine.isWithinBudget(atlasLocation, resident);
             LOGGER.info("Atlas {}: all {} mip level(s) served from one disk cache entry.", atlasLocation, levels.size());
             return new CompressedAtlas(atlasLocation, target, levels, requestedMaxLevel);
         } catch (IOException | RuntimeException e) {
@@ -237,8 +249,12 @@ public final class AtlasCompressionDriver {
         }
     }
 
-    /** Stores a complete chain under the atlas fingerprint for the next run. */
-    public static void storeChain(Fingerprint fingerprint, CompressedAtlas compressed) {
+    /**
+     * Stores a complete chain under the atlas fingerprint for the next run.
+     *
+     * @param refused {@code compressed} is in the fallback format, after the preferred one refused the atlas
+     */
+    public static void storeChain(Fingerprint fingerprint, CompressedAtlas compressed, boolean refused) {
         if (compressed == null || !isFullChain(compressed)) {
             return;
         }
@@ -248,7 +264,7 @@ public final class AtlasCompressionDriver {
             levels.add(new AtlasCache.ChainLevel(level.width(), level.height(), level.compressedBlocks()));
         }
         try {
-            cache().writeChain(chainKey(fingerprint, quality), compressed.target().cacheFormat(), quality, levels);
+            cache().writeChain(chainKey(fingerprint, quality, refused), compressed.target().cacheFormat(), quality, levels);
         } catch (IOException | RuntimeException e) {
             LOGGER.debug("Failed writing chain entry for atlas {}", compressed.atlasLocation(), e);
         }
@@ -301,13 +317,9 @@ public final class AtlasCompressionDriver {
             return new CompressedAtlas(atlasLocation, target, List.of(), requestedMaxLevel);
         }
 
-        long fullChainEstimateBytes = estimateFullMipChainBytes(baseWidth, baseHeight, target, requestedMaxLevel);
-        if (!VramBudgetEngine.isWithinBudget(atlasLocation.toString(), fullChainEstimateBytes)) {
-            LOGGER.warn("Atlas {} (full mip chain estimate) exceeds VRAM budget target. Falling back to uncompressed RGBA for this atlas.",
-                    atlasLocation);
-            LOGGER.info("[Tessera coverage] Atlas {} SKIPPED (exceeds VRAM budget).", atlasLocation);
-            return new CompressedAtlas(atlasLocation, target, List.of(), requestedMaxLevel);
-        }
+        // Advisory only (it logs a warning): leaving an atlas uncompressed because the compressed chain
+        // is over budget would put back the RGBA atlas, which takes two to eight times more.
+        VramBudgetEngine.isWithinBudget(atlasLocation, estimateFullMipChainBytes(baseWidth, baseHeight, target, requestedMaxLevel));
 
         List<MipChainBuilder.MipLevel> mipLevels = MipChainBuilder.build(baseRgba8, baseWidth, baseHeight, requestedMaxLevel);
         if (mipLevels == null || mipLevels.isEmpty()) {
@@ -346,11 +358,9 @@ public final class AtlasCompressionDriver {
                     // Keep the levels already produced; upload() caps MAX_LEVEL accordingly.
                     break;
                 }
-                try {
-                    cache.write(cacheKey, format, width, height, quality, blocks);
-                } catch (IOException | RuntimeException e) {
-                    LOGGER.debug("Failed writing cache entry {} for atlas {}", cacheKey, atlasLocation, e);
-                }
+                // Not written back per level: the caller stores the whole chain in one entry
+                // (storeChain), and a changed sprite changes every level's pixels anyway. Per-level
+                // entries from earlier versions are still read above.
             }
             compressedLevels.add(new CompressedLevel(level, width, height, blocks));
         }
@@ -421,6 +431,19 @@ public final class AtlasCompressionDriver {
         }
     }
 
+    private static boolean hasImmutableQuery() {
+        var caps = GL.getCapabilities();
+        return caps.OpenGL42 || caps.GL_ARB_texture_storage;
+    }
+
+    /**
+     * Whether the bound texture's level 0 is now block-compressed. Asked as "compressed at all"
+     * rather than "this exact format": some drivers report BC1 without alpha as its RGBA variant.
+     */
+    private static boolean levelZeroCompressed() {
+        return GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL13.GL_TEXTURE_COMPRESSED) != GL11.GL_FALSE;
+    }
+
     private static boolean hasDebugGroups() {
         var caps = GL.getCapabilities();
         return caps.OpenGL43 || caps.GL_KHR_debug;
@@ -435,6 +458,14 @@ public final class AtlasCompressionDriver {
             return -1;
         }
         TesseraCompat.bindTexture(textureId);
+
+        // Immutable storage (glTexStorage2D, e.g. from another mod) cannot be respecified: the
+        // compressed upload would fail and leave the atlas as it is, so it is not attempted.
+        if (hasImmutableQuery()
+                && GL11.glGetTexParameteri(GL11.GL_TEXTURE_2D, GL42.GL_TEXTURE_IMMUTABLE_FORMAT) != GL11.GL_FALSE) {
+            LOGGER.info("Atlas {} has immutable texture storage; keeping it uncompressed.", compressed.atlasLocation());
+            return -1;
+        }
 
         // requestedMaxLevel is the atlas's own mip level count. It only bounds
         // how deep this upload goes: on vanilla's mutable storage,
@@ -463,6 +494,14 @@ public final class AtlasCompressionDriver {
                     compressed.atlasLocation(), compressed.target(), level.level(), level.width(), level.height(), level.compressedBlocks());
             if (!uploaded) {
                 break;
+            }
+            // One query, on level 0 only: if the driver did not take the base level, nothing changed
+            // (the texture is still vanilla's RGBA) and uploading the other levels would leave it
+            // incomplete, which samples as black.
+            if (level.level() == 0 && !levelZeroCompressed()) {
+                LOGGER.warn("Atlas {}: the driver did not take {} for the base level; keeping it uncompressed.",
+                        compressed.atlasLocation(), compressed.target());
+                return -1;
             }
             totalResidentBytes += level.compressedBlocks().remaining();
             totalUncompressedBytes += (long) level.width() * level.height() * 4;

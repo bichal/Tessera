@@ -5,6 +5,7 @@ import net.bichal.mods.tessera.atlas.AtlasCompressionDriver;
 import net.bichal.mods.tessera.atlas.AtlasFormats;
 import net.bichal.mods.tessera.atlas.AtlasPolicy;
 import net.bichal.mods.tessera.cache.AtlasCache;
+import net.bichal.mods.tessera.compat.ModCompat;
 import net.bichal.mods.tessera.compat.TesseraCompat;
 import net.bichal.mods.tessera.compress.CompressedAtlases;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
@@ -28,25 +29,16 @@ import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Replaces the previous split-atlas architecture entirely: no second
- * {@code TextureAtlas}, no custom chunk geometry, no manual VAO/VBO draw
- * path. Vanilla stitches and uploads {@code TextureAtlas} exactly as it
- * always does -- every {@code BakedQuad}, every UV, every vertex layout
- * byte stays 100% vanilla. The only thing Tessera does here is, right
- * after vanilla's own {@code upload()} finishes (same texture, same atlas
- * object), re-assemble that atlas's already-placed pixels and re-upload them
- * compressed via {@code glCompressedTexImage2D} into the SAME texture --
- * respecifying its GL storage format in place.
+ * Compresses an atlas in place, right after vanilla's own {@code upload()}: the same texture and
+ * atlas object, every {@code BakedQuad}, UV and vertex byte untouched. Tessera re-assembles the
+ * atlas's already placed pixels and re-uploads them block-compressed with
+ * {@code glCompressedTexImage2D} into the same texture, respecifying its storage format.
  *
- * <p>This trades away the second BC1 format entirely (everything goes
- * through BC7, which handles both opaque and alpha content) in exchange
- * for eliminating every custom-geometry failure mode the split-atlas
- * design had: UV remapping, vertex stride/layout, sampler binding,
- * face culling, buffer lifecycle -- none of that code exists in this
- * design, because there is no second atlas and no custom draw call.
- *
- * <p>An atlas that holds animated sprites is not touched: vanilla keeps writing
- * its frames as RGBA8888 (with Kerria, Kerria does), so animations are never affected.
+ * <p>Atlases are split in two by what they hold. Static atlases are compressed with the smallest
+ * format their content allows (see {@link AtlasFormats}). Animated atlases, those holding any
+ * animated sprite, are not touched: vanilla keeps writing their frames as RGBA8888 (with Kerria,
+ * Kerria does), so animations are never affected. Splitting one atlas into two textures is not an
+ * option: chunks, items, particles, Sodium and shader packs all sample a single texture per atlas.
  */
 @Mixin(TextureAtlas.class)
 public abstract class TextureAtlasUploadMixin {
@@ -96,27 +88,29 @@ public abstract class TextureAtlasUploadMixin {
             return;
         }
 
-        // Animated textures stay RGBA8888: an atlas that holds any is left as vanilla
-        // uploaded it, so frames reach it the way vanilla writes them (or the way Kerria does).
-        if (AtlasPolicy.holdsAnimations(sprites)) {
-            LOGGER.info("Atlas {} has animated sprites: kept as RGBA8888.", atlasName);
-            CompressedAtlases.keepForAnimations(self);
-            return;
-        }
-
         int width = preparations.width();
         int height = preparations.height();
         // The full vanilla mip chain.
         int mipLevel = preparations.mipLevel();
+
+        // The split: static atlases are compressed below; animated ones stay RGBA8888 exactly as
+        // vanilla uploaded them, so frames reach them the way vanilla writes them (or the way Kerria does).
+        if (AtlasPolicy.classify(sprites) == AtlasPolicy.Kind.ANIMATED) {
+            LOGGER.info("Atlas {} has animated sprites: kept as RGBA8888{}.", atlasName,
+                    ModCompat.isKerriaLoaded() ? " for Kerria" : "");
+            CompressedAtlases.keepForAnimations(self, AtlasPolicy.rgbaChainBytes(width, height, mipLevel));
+            return;
+        }
 
         // Sprite images may be closed once this reload completes, so everything that reads
         // them (the fingerprint, and the pixel assembly on a miss) stays synchronous.
         AtlasCompressionDriver.Fingerprint fingerprint =
                 AtlasCompressionDriver.fingerprint(sprites, width, height, mipLevel);
 
-        // Default format by content and driver: BC1 / ASTC 6x6 when every texel is opaque, BC7 / ASTC 4x4
-        // otherwise (keeps alpha). Listeners may cancel or pick another one.
-        CompressionPipeline.Target chosen = AtlasFormats.choose(fingerprint.opaque());
+        // Default format by content and driver: BC1 / ASTC 6x6 when every texel is opaque, BC1 with
+        // one-bit alpha when every texel is opaque or transparent and there are no mip levels, BC7 /
+        // ASTC 4x4 otherwise (keeps alpha). Listeners may cancel or pick another one.
+        CompressionPipeline.Target chosen = AtlasFormats.choose(fingerprint.alpha(), mipLevel);
         if (chosen == null) {
             LOGGER.info("Atlas {}: this driver takes none of BC1, BC7, ASTC; kept as RGBA8888.", atlasName);
             return;
@@ -132,10 +126,18 @@ public abstract class TextureAtlasUploadMixin {
             return;
         }
 
+        // Where the chosen format can refuse an image (BC1 with one-bit alpha below its quality
+        // floor), the format to encode instead. Its chain is cached apart, so it is only found
+        // for an atlas that was refused before.
+        CompressionPipeline.Target fallback = AtlasFormats.fallback(target);
+
         // An atlas identical to one encoded on an earlier run comes straight off the disk cache.
         CompletableFuture<AtlasCompressionDriver.CompressedAtlas> job;
         AtlasCompressionDriver.CompressedAtlas stored =
-                AtlasCompressionDriver.loadChain(atlasName, target, fingerprint, mipLevel);
+                AtlasCompressionDriver.loadChain(atlasName, target, fingerprint, mipLevel, false);
+        if (stored == null && fallback != null) {
+            stored = AtlasCompressionDriver.loadChain(atlasName, fallback, fingerprint, mipLevel, true);
+        }
         if (stored != null) {
             job = CompletableFuture.completedFuture(stored);
         } else {
@@ -150,7 +152,11 @@ public abstract class TextureAtlasUploadMixin {
             job = CompletableFuture.supplyAsync(() -> {
                 AtlasCompressionDriver.CompressedAtlas encoded = AtlasCompressionDriver.compress(
                         atlasName, target, assembled, width, height, mipLevel);
-                AtlasCompressionDriver.storeChain(fingerprint, encoded);
+                boolean refused = encoded.levels().isEmpty() && fallback != null;
+                if (refused) {
+                    encoded = AtlasCompressionDriver.compress(atlasName, fallback, assembled, width, height, mipLevel);
+                }
+                AtlasCompressionDriver.storeChain(fingerprint, encoded, refused);
                 return encoded;
             }, TesseraCompat.backgroundExecutor());
         }
@@ -182,7 +188,7 @@ public abstract class TextureAtlasUploadMixin {
                                     uncompressed += (long) level.width() * level.height() * 4;
                                 }
                                 AtlasCompressEvent.post(new AtlasCompressEvent.Post(
-                                        atlasLocation, format, uncompressed - resident, resident));
+                                        atlasLocation, compressed.target().cacheFormat(), uncompressed - resident, resident));
                             }
                         } catch (Throwable t) {
                             LOGGER.error("Compressed upload failed for {} -- keeping vanilla RGBA atlas",
