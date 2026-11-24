@@ -1,0 +1,65 @@
+# Publishes the jars of an existing GitHub release to the chosen sites, without
+# building anything: for a release whose upload to one site failed (a token
+# missing or without permissions) after ci.yml had built and released it.
+name: Publish release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag whose jars are uploaded (e.g. v0.4.0)"
+        type: string
+        required: true
+      targets:
+        description: "Sites to upload to"
+        type: string
+        default: modrinth
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      TARGETS: ${{ inputs.targets }}
+      PUBLISH: bichal-build-logic/publishing/bichal_publish.py
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+        with:
+          ref: ${{ inputs.tag }}
+          path: mod
+          persist-credentials: false
+
+      # Same build-logic commit as ci.yml.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+        with:
+          repository: bichal/BichalBuildLogic
+          ref: de81f15fdaca1e20b4a39f2309e658f02a3e535a
+          path: bichal-build-logic
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: pip install --quiet markdown-it-py
+
+      - name: Download the release jars
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" --pattern '*.jar' -D dist
+
+      - name: Check
+        run: python3 "$PUBLISH" check --mod mod --dist dist --out out --tag "$TAG"
+
+      - name: Publish
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+        run: python3 "$PUBLISH" publish --mod mod --dist dist --out out --targets "$TARGETS" --tag "$TAG"
