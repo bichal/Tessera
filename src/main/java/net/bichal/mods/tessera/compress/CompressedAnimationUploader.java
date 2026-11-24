@@ -654,10 +654,20 @@ public final class CompressedAnimationUploader {
                 ByteBuffer rgba = frameRgba(pixels, level, w, h);
                 if (!cacheable) {
                     // Interpolated: not a keyframe, but the same blend comes back every cycle.
+                    if (TesseraSelfTest.ENABLED) {
+                        EncodeStats.blendLookups++;
+                    }
+                    long foundBefore = EncodeStats.found;
                     blocks = encodeByContent(rgba, w, h, state.target(), true);
+                    if (TesseraSelfTest.ENABLED && EncodeStats.found == foundBefore) {
+                        EncodeStats.blendMisses++;
+                    }
                 } else {
                     if (inputs != null) {
                         inputs[level] = new LevelInput(copyOf(rgba), w, h);
+                    }
+                    if (TesseraSelfTest.ENABLED) {
+                        EncodeStats.keyframeMisses++;
                     }
                     blocks = encodeFast(rgba, w, h, state.target());
                     encoded[level] = blocks;
@@ -821,7 +831,14 @@ public final class CompressedAnimationUploader {
             rect.position(rect.position() + rw * 4);
         }
         rect.flip();
+        if (TesseraSelfTest.ENABLED) {
+            EncodeStats.deepPatches++;
+        }
+        long foundBefore = EncodeStats.found;
         ByteBuffer blocks = encodeByContent(rect, rw, rh, state.target(), false);
+        if (TesseraSelfTest.ENABLED && EncodeStats.found == foundBefore) {
+            EncodeStats.deepMisses++;
+        }
         GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, level, x0, y0, rw, rh, glFormat, blocks);
     }
 
@@ -872,6 +889,8 @@ public final class CompressedAnimationUploader {
      */
     public static final class EncodeStats {
         public static long calls, nanos, maxNanos, found;
+        /** Keyframes not in the cache yet, blended frames looked up by content, deep-level patches. */
+        public static long keyframeMisses, blendLookups, deepPatches, blendMisses, deepMisses;
         private static long bestCalls, bestNanos;
 
         private EncodeStats() {
@@ -898,6 +917,7 @@ public final class CompressedAnimationUploader {
 
         public static synchronized void reset() {
             calls = nanos = maxNanos = found = 0;
+            keyframeMisses = blendLookups = deepPatches = blendMisses = deepMisses = 0;
             bestCalls = bestNanos = 0;
         }
     }

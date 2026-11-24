@@ -196,6 +196,11 @@ public final class TesseraSelfTest {
             lastCompressedTick = ticks;
             EncodeStats.reset();
         }
+        // Measure the steady state: the precode of animation frames (background) is still running.
+        if (CompressedAnimationUploader.pendingUpgrades() > 0) {
+            lastCompressedTick = ticks;
+            EncodeStats.reset();
+        }
         // The block atlas is the largest and usually the last one done: compressed, or kept as RGBA8
         // when its animations are left to vanilla (or Kerria). Then wait for the frame precode.
         boolean blocksDone = CompressedAtlases.all().keySet().stream().anyMatch(atlas -> isBlocks(atlas.location().toString()))
@@ -207,12 +212,16 @@ public final class TesseraSelfTest {
         }
         done = true;
         List<String> lines = new ArrayList<>();
-        // Steady state since the last atlas was compressed: what animations cost per client tick.
+        // Steady state since the last atlas was compressed and its frames precoded: what animations cost per client tick.
         int window = Math.max(1, ticks - lastCompressedTick);
         lines.add(String.format("animation encoding on the render thread over %d ticks: %d encodes (%d more found"
                         + " by content), %.3f ms per tick (largest %.3f ms); native encodes in the background: %d, %.1f ms",
                 window, EncodeStats.calls, EncodeStats.found, EncodeStats.nanos / 1e6 / window,
                 EncodeStats.maxNanos / 1e6, EncodeStats.bestCalls(), EncodeStats.bestNanos() / 1e6));
+        lines.add(String.format("  keyframes not precoded yet: %d; blended frames: %d looked up, %d encoded;"
+                        + " smallest-level patches: %d, %d encoded",
+                EncodeStats.keyframeMisses, EncodeStats.blendLookups, EncodeStats.blendMisses,
+                EncodeStats.deepPatches, EncodeStats.deepMisses));
         boolean pass;
         try {
             pass = check(lines);
