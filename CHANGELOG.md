@@ -92,6 +92,8 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Changed
 
+- A freshly encoded atlas is written to the disk cache on a task of its own, after it is handed back for upload, so
+  the upload no longer waits for zstd (about 1.8 s over a resource pack change in one profile).
 - GPU BC7 encodes no longer hold the render thread until the GPU is done: a compression thread now advances the
   encode in steps, one every couple of milliseconds, each one reading back the slices whose fence has signalled and
   queueing at most two more, with the texels uploaded band by band. Frames keep coming while the GPU works. One image

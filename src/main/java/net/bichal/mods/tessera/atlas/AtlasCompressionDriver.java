@@ -285,7 +285,8 @@ public final class AtlasCompressionDriver {
         int quality = Config.get(Config.COMPRESSION_QUALITY);
         List<AtlasCache.ChainLevel> levels = new ArrayList<>(compressed.levels().size());
         for (CompressedLevel level : compressed.levels()) {
-            levels.add(new AtlasCache.ChainLevel(level.width(), level.height(), level.compressedBlocks()));
+            // A view of its own: the chain may be uploading on the render thread meanwhile.
+            levels.add(new AtlasCache.ChainLevel(level.width(), level.height(), level.compressedBlocks().duplicate()));
         }
         try {
             cache().writeChain(chainKey(fingerprint, quality, refused), compressed.target().cacheFormat(), quality, levels);

@@ -233,7 +233,10 @@ public abstract class TextureAtlasUploadMixin {
                 if (refused) {
                     encoded = AtlasCompressionDriver.compress(atlasName, fallback, assembled, width, height, mipLevel);
                 }
-                AtlasCompressionDriver.storeChain(fingerprint, encoded, refused);
+                // Written to the disk cache on its own task: the upload does not wait for zstd.
+                AtlasCompressionDriver.CompressedAtlas chain = encoded;
+                CompletableFuture.runAsync(() -> AtlasCompressionDriver.storeChain(fingerprint, chain, refused),
+                        TesseraCompat.backgroundExecutor());
                 return encoded;
             }, TesseraCompat.backgroundExecutor());
         }
