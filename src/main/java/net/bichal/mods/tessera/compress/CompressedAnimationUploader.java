@@ -114,6 +114,11 @@ public final class CompressedAnimationUploader {
     private static AtlasState active;
     /** Atlas whose texture and unpack state are set for this tick's uploads (see {@link #prepareUploads}). */
     private static AtlasState prepared;
+    /**
+     * Atlas the work drained by {@link #prepareUploads} last bound (with its unpack state reset), so
+     * neither that work nor prepareUploads binds the same atlas again. Only valid while draining.
+     */
+    private static AtlasState drainBound;
 
     /**
      * Patches the smallest mip levels (those past alignedLevel, where a sprite shares 4x4 blocks with
@@ -637,13 +642,23 @@ public final class CompressedAnimationUploader {
         if (prepared == state) {
             return;
         }
+        drainBound = null;
         UPGRADES.drainTo(Runnable::run, UPGRADES.capacity());
         for (Runnable upgrade; (upgrade = UPGRADE_OVERFLOW.poll()) != null; ) {
             upgrade.run();
         }
-        TesseraCompat.bindTexture(state.glId());
-        TesseraCompat.resetUnpackState();
+        bindForUploads(state);
+        drainBound = null;
         prepared = state;
+    }
+
+    /** Binds the atlas and resets the unpack state, unless the work being drained already did. */
+    private static void bindForUploads(AtlasState state) {
+        if (drainBound != state) {
+            TesseraCompat.bindTexture(state.glId());
+            TesseraCompat.resetUnpackState();
+            drainBound = state;
+        }
     }
 
     /**
@@ -1193,8 +1208,7 @@ public final class CompressedAnimationUploader {
                 return; // reloaded meanwhile
             }
             // Runs while the render thread prepares some atlas's uploads, before it binds that atlas.
-            TesseraCompat.bindTexture(state.glId());
-            TesseraCompat.resetUnpackState();
+            bindForUploads(state);
             int glFormat = state.target().glFormat();
             for (DeepUpload upload : uploads) {
                 // Not through the frame bank: these bands change with every send.
