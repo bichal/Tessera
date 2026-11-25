@@ -113,7 +113,10 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   tick; the thread keeps each level's compressed blocks, writes the patched rectangles into them and the render
   thread uploads, per level, the band of block rows that changed: one call where there were dozens of small uploads
   or bank copies (self-test, vanilla block atlas: 165 compressed writes per tick down to 125, half the patches). The
-  self-test reads those levels back and checks them against their copies.
+  self-test reads those levels back and checks them against their copies. Only the runs of rows that changed are
+  sent (runs up to 4 block rows apart go as one), not every row between the first and last, and the buffers those
+  bands are staged in are reused instead of allocated and zeroed for every band, which was most of the mip thread's
+  time in a profile with a modded block atlas.
 - BC7 is encoded by bc7f (Basis Universal's real-time BC7 encoder, which uses the whole format) and, from
   `compressionQuality` 2 up, also by bc7enc: each 4x4 block keeps whichever decodes closer to the source. On the vanilla
   atlases the default preset is 0.15-1.5 dB PSNR above the old encoder at any of its presets, and 2.5-4 times faster

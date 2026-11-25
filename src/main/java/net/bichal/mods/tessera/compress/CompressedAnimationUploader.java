@@ -131,6 +131,13 @@ public final class CompressedAnimationUploader {
      * render thread a system call, and those levels are only seen from afar.
      */
     private static final int DEEP_BATCH_TICKS = 4;
+    /**
+     * Unchanged block rows between two changed runs of a level that are still sent with them, as one
+     * upload: below this a second call costs more than the rows it saves.
+     */
+    private static final int DEEP_ROW_GAP = 4;
+    /** Band buffers kept for reuse per atlas. */
+    private static final int MAX_SPARE_BANDS = 8;
 
     /** The smallest levels of one atlas: frames waiting to be patched, and the levels as the GPU has them. */
     private static final class DeepBatch {
@@ -140,6 +147,33 @@ public final class CompressedAnimationUploader {
         int ticks;
         /** Each smallest level's compressed blocks, built on first use; mip thread only. */
         final Map<Integer, ByteBuffer> blocks = new HashMap<>();
+        /**
+         * Band buffers already uploaded, for the next send: taken on the mip thread, given back on the
+         * render thread once {@code glCompressedTexSubImage2D} has copied them.
+         */
+        final ConcurrentLinkedQueue<ByteBuffer> spare = new ConcurrentLinkedQueue<>();
+
+        /** A spare band buffer of at least {@code bytes}, or a new one (mip thread). */
+        ByteBuffer band(int bytes) {
+            for (int i = spare.size(); i > 0; i--) {
+                ByteBuffer buffer = spare.poll();
+                if (buffer == null) {
+                    break;
+                }
+                if (buffer.capacity() >= bytes) {
+                    return buffer.clear().limit(bytes);
+                }
+                spare.offer(buffer);
+            }
+            return ByteBuffer.allocateDirect(bytes).order(ByteOrder.LITTLE_ENDIAN);
+        }
+
+        /** Gives back an uploaded band buffer (render thread). */
+        void giveBack(ByteBuffer buffer) {
+            if (spare.size() < MAX_SPARE_BANDS) {
+                spare.offer(buffer);
+            }
+        }
     }
     /** Blocks by rectangle content, mip thread only (least recently used out first). */
     private static final Map<Long, ByteBuffer> DEEP_BY_CONTENT = new LinkedHashMap<>(256, 0.75f, true) {
@@ -1067,7 +1101,6 @@ public final class CompressedAnimationUploader {
         return sources;
     }
 
-    /** Sends this tick's smallest-level patches to the mip thread (render thread). */
     /** Sends the waiting frames to the mip thread every {@link #DEEP_BATCH_TICKS} ticks (render thread). */
     private static void flushDeepRequests(AtlasState state) {
         DeepBatch batch = state.deep();
@@ -1088,12 +1121,13 @@ public final class CompressedAnimationUploader {
      * Mip thread: writes each frame into the retained RGBA copies of the smallest levels, re-encodes
      * the block-aligned rectangles covering it (neighbouring pixels come from the copy, so they are
      * preserved) and writes them into that level's compressed copy. The render thread then uploads
-     * the band of block rows each level changed in, one call per level, before its next draw.
+     * the runs of block rows each level changed in (runs a few rows apart as one band), before its next draw.
      */
     private static void patchDeepLevels(AtlasState state, List<DeepRequest> requests) {
         long start = System.nanoTime();
         List<DeepUpload> uploads = new ArrayList<>();
-        Map<Integer, int[]> dirtyRows = new HashMap<>();
+        List<ByteBuffer> bands = new ArrayList<>();
+        Map<Integer, java.util.BitSet> dirtyRows = new HashMap<>();
         int quality = Config.get(Config.COMPRESSION_QUALITY);
         int patches = 0;
         int[] encodes = {0};
@@ -1117,18 +1151,33 @@ public final class CompressedAnimationUploader {
                     if (!writeIntoLevel(state, rect, quality)) {
                         uploads.add(rect); // no copy of this level: the rectangle on its own
                     } else {
-                        int[] rows = dirtyRows.computeIfAbsent(level, l -> new int[]{Integer.MAX_VALUE, 0});
+                        java.util.BitSet rows = dirtyRows.computeIfAbsent(level, l -> new java.util.BitSet());
                         // A level just encoded whole goes up whole, so the GPU matches the copy.
-                        rows[0] = fresh ? 0 : Math.min(rows[0], rect.y() >> 2);
-                        rows[1] = Math.max(rows[1], fresh
-                                ? (state.deepLevels().get(level).height() + 3) >> 2
-                                : (rect.y() + rect.height() + 3) >> 2);
+                        if (fresh) {
+                            rows.set(0, (state.deepLevels().get(level).height() + 3) >> 2);
+                        } else {
+                            rows.set(rect.y() >> 2, (rect.y() + rect.height() + 3) >> 2);
+                        }
                     }
                     patches++;
                 }
             }
-            for (Map.Entry<Integer, int[]> dirty : dirtyRows.entrySet()) {
-                uploads.add(levelBand(state, dirty.getKey(), dirty.getValue()[0], dirty.getValue()[1]));
+            // Each run of changed block rows goes up as one band, runs a few rows apart together.
+            for (Map.Entry<Integer, java.util.BitSet> dirty : dirtyRows.entrySet()) {
+                java.util.BitSet rows = dirty.getValue();
+                int first = rows.nextSetBit(0);
+                while (first >= 0) {
+                    int end = rows.nextClearBit(first);
+                    int next = rows.nextSetBit(end);
+                    while (next >= 0 && next - end <= DEEP_ROW_GAP) {
+                        end = rows.nextClearBit(next);
+                        next = rows.nextSetBit(end);
+                    }
+                    DeepUpload band = levelBand(state, dirty.getKey(), first, end);
+                    uploads.add(band);
+                    bands.add(band.blocks());
+                    first = next;
+                }
             }
         } catch (RuntimeException e) {
             LOGGER.warn("Patching the smallest mip levels of animated sprites failed", e);
@@ -1155,6 +1204,8 @@ public final class CompressedAnimationUploader {
                 GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, upload.level(), upload.x(), upload.y(),
                         upload.width(), upload.height(), glFormat, upload.blocks().duplicate());
             }
+            // The driver has copied them: the next send may reuse them.
+            bands.forEach(state.deep()::giveBack);
         });
     }
 
@@ -1192,8 +1243,8 @@ public final class CompressedAnimationUploader {
     private static DeepUpload levelBand(AtlasState state, int level, int firstRow, int endRow) {
         MipChainBuilder.MipLevel copy = state.deepLevels().get(level);
         int rowBytes = ((copy.width() + 3) >> 2) * state.target().bytesPerBlock();
-        ByteBuffer band = ByteBuffer.allocateDirect((endRow - firstRow) * rowBytes);
-        band.put(0, state.deep().blocks.get(level), firstRow * rowBytes, band.capacity());
+        ByteBuffer band = state.deep().band((endRow - firstRow) * rowBytes);
+        band.put(0, state.deep().blocks.get(level), firstRow * rowBytes, band.limit());
         int y = firstRow << 2;
         return new DeepUpload(level, 0, y, copy.width(), Math.min(copy.height(), endRow << 2) - y, band);
     }
