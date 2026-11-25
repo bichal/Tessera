@@ -1,5 +1,7 @@
 package net.bichal.mods.tessera.compress.software;
 
+import net.bichal.mods.tessera.util.ParallelWork;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -23,11 +25,27 @@ public final class TransparentTexelBleed {
     private TransparentTexelBleed() {
     }
 
+    /** Images with at least this many texels are bled in parallel bands of block rows. */
+    private static final int PARALLEL_TEXELS = 512 * 512;
+    /** Block rows (4 texel rows each) per parallel band. */
+    private static final int BAND_BLOCK_ROWS = 16;
+
     /** Rewrites, in place, the RGB of A = 0 texels in a tightly packed RGBA8 image starting at index 0. */
     public static void apply(ByteBuffer rgba, int width, int height) {
         ByteBuffer px = rgba.duplicate().order(ByteOrder.LITTLE_ENDIAN);
         int base = rgba.position();
-        for (int by = 0; by < height; by += 4) {
+        int blockRows = (height + 3) / 4;
+        if ((long) width * height < PARALLEL_TEXELS) {
+            bleedRows(px, base, width, height, 0, blockRows);
+            return;
+        }
+        // Each 4x4 block reads and writes only its own texels: bands of block rows are independent.
+        ParallelWork.forEach((blockRows + BAND_BLOCK_ROWS - 1) / BAND_BLOCK_ROWS, band -> bleedRows(px, base, width,
+                height, band * BAND_BLOCK_ROWS, Math.min(blockRows, (band + 1) * BAND_BLOCK_ROWS)));
+    }
+
+    private static void bleedRows(ByteBuffer px, int base, int width, int height, int firstBlockRow, int endBlockRow) {
+        for (int by = firstBlockRow * 4; by < endBlockRow * 4; by += 4) {
             for (int bx = 0; bx < width; bx += 4) {
                 int yEnd = Math.min(by + 4, height);
                 int xEnd = Math.min(bx + 4, width);

@@ -1,6 +1,7 @@
 package net.bichal.mods.tessera.atlas;
 
 import net.bichal.mods.celeris.api.simd.VectorOperations;
+import net.bichal.mods.tessera.util.ParallelWork;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -43,6 +44,24 @@ public final class SpriteFamilyAnalyzer {
         int outH = Math.max(h / 2, 1);
         byte[] output = new byte[outW * outH * CHANNELS];
 
+        // Output rows are independent: large levels are filtered in parallel bands.
+        if ((long) outW * outH < PARALLEL_TEXELS) {
+            downsampleRows(pixels, w, h, outW, output, 0, outH);
+        } else {
+            int bands = (outH + BAND_ROWS - 1) / BAND_ROWS;
+            ParallelWork.forEach(bands, band -> downsampleRows(pixels, w, h, outW, output,
+                    band * BAND_ROWS, Math.min(outH, (band + 1) * BAND_ROWS)));
+        }
+
+        return new DownsampleResult(output, outW, outH);
+    }
+
+    /** Output levels with at least this many texels are filtered in parallel bands of rows. */
+    private static final int PARALLEL_TEXELS = 256 * 256;
+    /** Output rows per parallel band. */
+    private static final int BAND_ROWS = 64;
+
+    private static void downsampleRows(byte[] pixels, int w, int h, int outW, byte[] output, int firstRow, int endRow) {
         // Reused per output row: four interleaved-channel float rows (the
         // two source rows' even/odd-column contributions), summed and
         // scaled via VectorOperations across the whole row width at once
@@ -50,7 +69,7 @@ public final class SpriteFamilyAnalyzer {
         float[] topSum = new float[outW * CHANNELS];
         float[] bottomSum = new float[outW * CHANNELS];
 
-        for (int outY = 0; outY < outH; outY++) {
+        for (int outY = firstRow; outY < endRow; outY++) {
             int y0 = Math.min(outY * 2, h - 1);
             int y1 = Math.min(outY * 2 + 1, h - 1);
 
@@ -70,8 +89,6 @@ public final class SpriteFamilyAnalyzer {
                 output[rowOffset + i] = (byte) clampByte((int) topSum[i]);
             }
         }
-
-        return new DownsampleResult(output, outW, outH);
     }
 
     /** Sums the two horizontally-paired source texels (x0,x1) for every output column of one source row into {@code out}. */

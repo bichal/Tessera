@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import net.bichal.mods.celeris.framework.async.AsyncResultQueue;
+import net.bichal.mods.tessera.util.ParallelWork;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -446,8 +447,19 @@ public final class CompressedAnimationUploader {
                     int[] counts = new int[2]; // keyframes, blends
                     // Blend keys found on the way, recorded on the render thread with the blocks.
                     List<BlendKey> blendKeys = new ArrayList<>();
-                    for (SpriteSnapshot sprite : sprites) {
-                        collectRegions(sprite, target, byLevel, blendSeen, counts, blendKeys);
+                    // Each sprite's frames are built and hashed in parallel, then taken in sprite order,
+                    // so the regions (and which blends the cap leaves out) do not depend on the threads.
+                    int[] blendQuota = new int[sprites.size()];
+                    int blendsBefore = 0;
+                    for (int i = 0; i < sprites.size(); i++) {
+                        blendQuota[i] = Math.max(0, MAX_PRECODED_BLENDS - blendsBefore);
+                        blendsBefore += blendCount(sprites.get(i));
+                    }
+                    SpriteRegions[] perSprite = new SpriteRegions[sprites.size()];
+                    ParallelWork.forEach(sprites.size(),
+                            i -> perSprite[i] = collectRegions(sprites.get(i), target, levels, blendQuota[i]));
+                    for (SpriteRegions regions : perSprite) {
+                        regions.addTo(byLevel, blendSeen, counts, blendKeys);
                     }
                     List<ByteBuffer[]> encoded = new ArrayList<>();
                     for (int level = 0; level < byLevel.size(); level++) {
@@ -497,14 +509,64 @@ public final class CompressedAnimationUploader {
         }
     }
 
-    /** Adds one sprite's keyframes (by sprite and frame) and blended frames (by content) to {@code byLevel}. */
-    private static void collectRegions(SpriteSnapshot sprite, CompressionPipeline.Target target,
-                                       List<List<PrecodeRegion>> byLevel, List<java.util.Set<Long>> blendSeen,
-                                       int[] counts, List<BlendKey> blendKeys) {
+    /** One sprite's precode regions per level, keyframes first, then its blends in timeline order. */
+    private record SpriteRegions(List<List<PrecodeRegion>> keyframes, List<List<PrecodeRegion>> blends,
+                                 List<BlendKey> blendKeys, int keyframeCount, int blendCount) {
+
+        /** Adds these regions to the atlas's, dropping blends another sprite already brought. */
+        void addTo(List<List<PrecodeRegion>> byLevel, List<java.util.Set<Long>> blendSeen, int[] counts,
+                   List<BlendKey> allBlendKeys) {
+            for (int level = 0; level < byLevel.size(); level++) {
+                byLevel.get(level).addAll(keyframes.get(level));
+                for (PrecodeRegion blend : blends.get(level)) {
+                    if (blendSeen.get(level).add(blend.key())) {
+                        byLevel.get(level).add(blend);
+                    }
+                }
+            }
+            allBlendKeys.addAll(blendKeys);
+            counts[0] += keyframeCount;
+            counts[1] += blendCount;
+        }
+    }
+
+    /** How many blended frames {@link #collectRegions} would build for a sprite without a cap. */
+    private static int blendCount(SpriteSnapshot sprite) {
+        AnimationReader.Timeline timeline = sprite.timeline();
+        if (timeline == null || !timeline.interpolated()) {
+            return 0;
+        }
+        int[] indices = timeline.indices();
+        int count = 0;
+        for (int i = 0; i < indices.length; i++) {
+            if (!TesseraCompat.GPU_ANIMATION && indices[i] == indices[(i + 1) % indices.length]) {
+                continue;
+            }
+            count += Math.max(1, timeline.times()[i]);
+        }
+        return count;
+    }
+
+    /**
+     * One sprite's keyframes (by sprite and frame) and up to {@code blendQuota} blended frames (by
+     * content, repeats within the sprite dropped). Reads only the sprite's own snapshot: safe on any thread.
+     */
+    private static SpriteRegions collectRegions(SpriteSnapshot sprite, CompressionPipeline.Target target,
+                                                int levels, int blendQuota) {
+        List<List<PrecodeRegion>> keyframes = new ArrayList<>();
+        List<List<PrecodeRegion>> blends = new ArrayList<>();
+        List<java.util.Set<Long>> seen = new ArrayList<>();
+        for (int level = 0; level <= levels; level++) {
+            keyframes.add(new ArrayList<>());
+            blends.add(new ArrayList<>());
+            seen.add(new java.util.HashSet<>());
+        }
+        List<BlendKey> blendKeys = new ArrayList<>();
         PixelSource source = sprite.source();
         int w = sprite.width();
         int h = sprite.height();
         int padding = sprite.padding();
+        int keyframeCount = 0;
         for (int frame : sprite.uniqueFrames()) {
             int column = frame % sprite.columns();
             int row = frame / sprite.columns();
@@ -526,25 +588,26 @@ public final class CompressedAnimationUploader {
                 if (rw < 1 || rh < 1 || ((rw | rh) & 3) != 0) {
                     break;
                 }
-                byLevel.get(level).add(new PrecodeRegion(sprite.owner(), key, sprite.frameLevels(),
+                keyframes.get(level).add(new PrecodeRegion(sprite.owner(), key, sprite.frameLevels(),
                         newFrameRgba(pixels, level, rw, rh), rw, rh));
             }
-            counts[0]++;
+            keyframeCount++;
         }
 
+        int blendCount = 0;
         AnimationReader.Timeline timeline = sprite.timeline();
         if (timeline == null || !timeline.interpolated()) {
-            return;
+            return new SpriteRegions(keyframes, blends, blendKeys, keyframeCount, 0);
         }
         int[] indices = timeline.indices();
-        for (int i = 0; i < indices.length && counts[1] < MAX_PRECODED_BLENDS; i++) {
+        for (int i = 0; i < indices.length && blendCount < blendQuota; i++) {
             int current = indices[i];
             int next = indices[(i + 1) % indices.length];
             int time = Math.max(1, timeline.times()[i]);
             if (!TesseraCompat.GPU_ANIMATION && current == next) {
                 continue; // vanilla uploads nothing between two equal frames
             }
-            for (int subFrame = 0; subFrame < time && counts[1] < MAX_PRECODED_BLENDS; subFrame++) {
+            for (int subFrame = 0; subFrame < time && blendCount < blendQuota; subFrame++) {
                 FramePixels pixels;
                 long blend = 0L;
                 if (TesseraCompat.GPU_ANIMATION) {
@@ -568,13 +631,14 @@ public final class CompressedAnimationUploader {
                     if (blend != 0L) {
                         blendKeys.add(new BlendKey(sprite.owner(), blend, sprite.frameLevels(), level, hash));
                     }
-                    if (blendSeen.get(level).add(hash)) {
-                        byLevel.get(level).add(new PrecodeRegion(null, hash, sprite.frameLevels(), rgba, rw, rh));
+                    if (seen.get(level).add(hash)) {
+                        blends.get(level).add(new PrecodeRegion(null, hash, sprite.frameLevels(), rgba, rw, rh));
                     }
                 }
-                counts[1]++;
+                blendCount++;
             }
         }
+        return new SpriteRegions(keyframes, blends, blendKeys, keyframeCount, blendCount);
     }
 
     /**
