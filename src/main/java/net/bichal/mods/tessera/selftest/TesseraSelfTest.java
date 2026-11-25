@@ -236,11 +236,11 @@ public final class TesseraSelfTest {
         lines.add(String.format("  keyframes not precoded yet: %d; blended frames: %d looked up (%d by frame and"
                         + " progress), %d encoded",
                 EncodeStats.keyframeMisses, EncodeStats.blendLookups, EncodeStats.foundByFrame, EncodeStats.blendMisses));
-        lines.add(String.format("  smallest-level patches on the mip thread: %d, %d encoded, %.3f ms per tick",
+        lines.add(String.format("  smallest-level patches on the worker thread: %d, %d encoded, %.3f ms per tick",
                 EncodeStats.deepPatches(), EncodeStats.deepMisses(), EncodeStats.deepNanos() / 1e6 / window));
-        lines.add(String.format("  compressed uploads: %.1f per tick, %.1f of them copied from the GPU frame bank"
-                        + " (%d frames put in it)", (double) EncodeStats.uploads / window,
-                (double) EncodeStats.bankCopies / window, EncodeStats.bankFills));
+        lines.add(String.format("  compressed uploads: %.1f per tick (%.1f more skipped, already in place), %.1f of"
+                        + " them copied from the GPU frame bank (%d frames put in it)", (double) EncodeStats.uploads / window,
+                (double) EncodeStats.unchanged / window, (double) EncodeStats.bankCopies / window, EncodeStats.bankFills));
         boolean pass;
         try {
             pass = check(lines);
@@ -488,7 +488,7 @@ public final class TesseraSelfTest {
 
     /** Level 0 of the bound texture as RGBA8, decoded by the driver. */
     /**
-     * The smallest levels (patched on the mip thread and uploaded in bands) against their RGBA copies:
+     * The smallest levels (patched on the worker thread and uploaded in bands) against their RGBA copies:
      * a band written at the wrong place or with the wrong block layout would decode as garbage. The
      * copies run up to a few ticks ahead of the GPU, so animated texels may differ a little.
      */
@@ -513,7 +513,7 @@ public final class TesseraSelfTest {
                     error.count++;
                 }
                 boolean levelOk = error.psnr() >= MIN_DEEP_PSNR;
-                out.add(String.format("  %s level %d (patched on the mip thread): PSNR %.1f dB against its copy%s",
+                out.add(String.format("  %s level %d (patched on the worker thread): PSNR %.1f dB against its copy%s",
                         name, level, error.psnr(), levelOk ? "" : " (below " + MIN_DEEP_PSNR + ")"));
                 ok &= levelOk;
             } finally {

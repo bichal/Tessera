@@ -105,18 +105,27 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 - The self-test reports everything animations cost the render thread per tick, not only the encodes, and how many
   blends were found by frame and progress, and how many compressed uploads a tick makes.
 - The smallest mip levels of animated sprites (those past the last level where sprites own whole 4x4 blocks) are
-  patched, encoded and cached on a background thread ("Tessera animation mips") and handed back as finished uploads,
+  patched, encoded and cached on a background thread ("Tessera animation worker") and handed back as finished uploads,
   so the render thread no longer encodes any animation frame (self-test, vanilla block atlas: about 500 encodes per
   200 ticks down to none). Those levels follow a few ticks behind, which only shows at a distance. The self-test
   reports that thread's patches, encodes and time per tick.
-- Those smallest levels are sent to the mip thread every 4 ticks, one frame per sprite (the latest), instead of every
+- Those smallest levels are sent to the worker every 8 ticks, one frame per sprite (the latest), instead of every
   tick; the thread keeps each level's compressed blocks, writes the patched rectangles into them and the render
   thread uploads, per level, the band of block rows that changed: one call where there were dozens of small uploads
   or bank copies (self-test, vanilla block atlas: 165 compressed writes per tick down to 125, half the patches). The
   self-test reads those levels back and checks them against their copies. Only the runs of rows that changed are
   sent (runs up to 4 block rows apart go as one), not every row between the first and last, and the buffers those
-  bands are staged in are reused instead of allocated and zeroed for every band, which was most of the mip thread's
-  time in a profile with a modded block atlas.
+  bands are staged in are reused instead of allocated and zeroed for every band, which was most of that thread's
+  time in a profile with a modded block atlas. Patches take the fastest preset (bc7f alone, `compressionQuality` 1 at
+  most; a level's first, whole encode keeps the atlas's): the worker's time per tick is less than half, with the
+  levels' PSNR against their copies unchanged in the self-test.
+- Animations use one background thread instead of two ("Tessera animation encoder" for precodes and best-quality
+  keyframes, "Tessera animation mips" for the smallest levels): it starts when there is work and stops after 30 s
+  without any.
+- A sprite's region is not uploaded again at a mip level that already holds the same blocks (cached blocks are never
+  changed, so the same buffer means the same content), as with blends that come out identical at the smaller levels;
+  the self-test counts these. Each sprite's frame no longer allocates its texel maps unless its blocks have to be
+  built.
 - BC7 is encoded by bc7f (Basis Universal's real-time BC7 encoder, which uses the whole format) and, from
   `compressionQuality` 2 up, also by bc7enc: each 4x4 block keeps whichever decodes closer to the source. On the vanilla
   atlases the default preset is 0.15-1.5 dB PSNR above the old encoder at any of its presets, and 2.5-4 times faster
