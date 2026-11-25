@@ -91,6 +91,11 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 - F3's Tessera lines are rebuilt once a second, or as soon as the compression stats change, instead of every frame.
 - The self-test reports everything animations cost the render thread per tick, not only the encodes, and how many
   blends were found by frame and progress, and how many compressed uploads a tick makes.
+- The smallest mip levels of animated sprites (those past the last level where sprites own whole 4x4 blocks) are
+  patched, encoded and cached on a background thread ("Tessera animation mips") and handed back as finished uploads,
+  so the render thread no longer encodes any animation frame (self-test, vanilla block atlas: about 500 encodes per
+  200 ticks down to none). Those levels follow a tick behind, which only shows at a distance. The self-test reports
+  that thread's patches, encodes and time per tick.
 - BC7 is encoded by bc7f (Basis Universal's real-time BC7 encoder, which uses the whole format) and, from
   `compressionQuality` 2 up, also by bc7enc: each 4x4 block keeps whichever decodes closer to the source. On the vanilla
   atlases the default preset is 0.15-1.5 dB PSNR above the old encoder at any of its presets, and 2.5-4 times faster

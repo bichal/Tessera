@@ -234,9 +234,10 @@ public final class TesseraSelfTest {
         lines.add(String.format("  all animation work on the render thread: %.3f ms per tick (largest call %.3f ms)",
                 EncodeStats.drawNanos / 1e6 / window, EncodeStats.maxDrawNanos / 1e6));
         lines.add(String.format("  keyframes not precoded yet: %d; blended frames: %d looked up (%d by frame and"
-                        + " progress), %d encoded; smallest-level patches: %d, %d encoded",
-                EncodeStats.keyframeMisses, EncodeStats.blendLookups, EncodeStats.foundByFrame, EncodeStats.blendMisses,
-                EncodeStats.deepPatches, EncodeStats.deepMisses));
+                        + " progress), %d encoded",
+                EncodeStats.keyframeMisses, EncodeStats.blendLookups, EncodeStats.foundByFrame, EncodeStats.blendMisses));
+        lines.add(String.format("  smallest-level patches on the mip thread: %d, %d encoded, %.3f ms per tick",
+                EncodeStats.deepPatches(), EncodeStats.deepMisses(), EncodeStats.deepNanos() / 1e6 / window));
         lines.add(String.format("  compressed uploads: %.1f per tick", (double) EncodeStats.uploads / window));
         boolean pass;
         try {
