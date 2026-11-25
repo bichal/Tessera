@@ -10,15 +10,20 @@ import java.nio.ByteOrder;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Runs a BC7 encode on the GPU for any thread. The GL context belongs to the render thread, so a
- * compression thread hands the encode to it through Minecraft's own task queue (drained every frame,
- * the loading screen included) and waits; the render thread never waits on compression jobs, so this
- * cannot deadlock. Every result is spot-checked on the CPU before it is used: a sample of its blocks
- * is decoded by the native decoder and must stay close to the source, with no cutout texel flipped.
- * Anything wrong (an exception, a timeout, a failed spot check) returns {@code null}, and the caller
- * encodes on the CPU; an exception or a timeout also turns the GPU path off for the session.
+ * compression thread hands the work to it through Minecraft's own task queue (drained every frame,
+ * the loading screen included) in short steps: start the job, then advance it once every couple of
+ * milliseconds, each step reading back the slices that finished and queueing more without waiting on
+ * the GPU, so frames keep coming while it works. The render thread never waits on compression jobs,
+ * so this cannot deadlock. One image is on the GPU at a time: while it is busy, the other compression
+ * threads encode on the CPU, so both work at once. Every result is spot-checked on the CPU before it
+ * is used: a sample of its blocks is decoded by the native decoder and must stay close to the source,
+ * with no cutout texel flipped. Anything wrong (an exception, no progress for {@link #TIMEOUT_SECONDS},
+ * a failed spot check) returns {@code null}, and the caller encodes on the CPU; an exception or a
+ * timeout also turns the GPU path off for the session.
  */
 public final class GpuDispatch {
 
@@ -29,6 +34,11 @@ public final class GpuDispatch {
     /** Well below any real BC7 encode of game textures: this catches broken output, not quality. */
     private static final double SPOT_MIN_PSNR = 24.0;
     private static final int CUTOUT_ALPHA = 26;
+    /** Pause between steps of a job, so steps land on separate frames instead of spinning one task drain. */
+    private static final long STEP_NANOS = 2_000_000L;
+    /** Images on the GPU at once; the rest go to the CPU meanwhile. */
+    private static final int MAX_JOBS = 1;
+    private static final java.util.concurrent.atomic.AtomicInteger JOBS = new java.util.concurrent.atomic.AtomicInteger();
 
     /** Images encoded on the GPU, and GPU results sent back to the CPU by the spot check (for the self-test). */
     private static final java.util.concurrent.atomic.AtomicLong ENCODED = new java.util.concurrent.atomic.AtomicLong();
@@ -57,18 +67,14 @@ public final class GpuDispatch {
         if (minecraft.isSameThread()) {
             blocks = run(encoder, input, width, height, qualityPreset);
         } else {
-            CompletableFuture<ByteBuffer> job = CompletableFuture.supplyAsync(
-                    () -> run(encoder, input, width, height, qualityPreset), minecraft);
+            int jobs = JOBS.get();
+            if (jobs >= MAX_JOBS || !JOBS.compareAndSet(jobs, jobs + 1)) {
+                return null; // the GPU is busy with another image: this one is faster on the CPU meanwhile
+            }
             try {
-                blocks = job.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            } catch (TimeoutException e) {
-                GpuCompression.disable("the render thread did not run a GPU encode within " + TIMEOUT_SECONDS + " s");
-                return null;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return null;
-            } catch (Exception e) {
-                return null;
+                blocks = runInSteps(minecraft, encoder, input, width, height, qualityPreset);
+            } finally {
+                JOBS.decrementAndGet();
             }
         }
         if (blocks == null) {
@@ -82,6 +88,66 @@ public final class GpuDispatch {
         }
         ENCODED.incrementAndGet();
         return blocks;
+    }
+
+    /** The encode as a job advanced from this thread, a step per frame; {@code null} on any failure. */
+    private static ByteBuffer runInSteps(Minecraft minecraft, GpuBc7Encoder encoder, ByteBuffer input,
+                                         int width, int height, int quality) {
+        GpuBc7Encoder.Job job = onRenderThread(minecraft, () -> encoder.begin(input.duplicate(), width, height, quality));
+        if (job == null) {
+            return null;
+        }
+        try {
+            long lastProgress = System.nanoTime();
+            int lastBack = 0;
+            while (true) {
+                Boolean finished = onRenderThread(minecraft, job::advance);
+                if (finished == null) {
+                    return null;
+                }
+                if (finished) {
+                    return job.blocks();
+                }
+                long now = System.nanoTime();
+                // The future's completion publishes the render thread's writes, the count included.
+                if (job.blocksBack() != lastBack) {
+                    lastBack = job.blocksBack();
+                    lastProgress = now;
+                } else if (now - lastProgress > TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS)) {
+                    GpuCompression.disable("a GPU encode made no progress for " + TIMEOUT_SECONDS + " s");
+                    return null;
+                }
+                LockSupport.parkNanos(STEP_NANOS);
+                if (Thread.currentThread().isInterrupted()) {
+                    return null;
+                }
+            }
+        } finally {
+            minecraft.execute(job::release);
+        }
+    }
+
+    /** Runs {@code step} on the render thread and waits for it; {@code null} if it threw or timed out. */
+    private static <T> T onRenderThread(Minecraft minecraft, java.util.function.Supplier<T> step) {
+        CompletableFuture<T> future = CompletableFuture.supplyAsync(() -> {
+            try {
+                return step.get();
+            } catch (Throwable t) {
+                GpuCompression.disable("the GPU encoder threw " + t);
+                return null;
+            }
+        }, minecraft);
+        try {
+            return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            GpuCompression.disable("the render thread did not run a GPU encode step within " + TIMEOUT_SECONDS + " s");
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static ByteBuffer run(GpuBc7Encoder encoder, ByteBuffer rgba, int width, int height, int quality) {

@@ -92,6 +92,11 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Changed
 
+- GPU BC7 encodes no longer hold the render thread until the GPU is done: a compression thread now advances the
+  encode in steps, one every couple of milliseconds, each one reading back the slices whose fence has signalled and
+  queueing at most two more, with the texels uploaded band by band. Frames keep coming while the GPU works. One image
+  is on the GPU at a time; while it is busy the other compression threads encode on the CPU, so both work at once.
+  A job with no progress for 30 s turns the GPU path off, as a stuck encode did before.
 - Load-time work Tessera does in Java is split over Celeris's shared worker threads, with the calling thread working
   alongside: the atlas fingerprint and the copy of its sprites (both on the render thread), the alpha bleed and the
   mip levels of large images, and building and hashing every precoded animation frame (one sprite per chunk, taken
