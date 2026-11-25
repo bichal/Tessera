@@ -12,8 +12,14 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   (OpenGL 4.3; never on macOS), checked on the render thread. Before a GPU encoder may touch an atlas it has to pass a
   startup check: it encodes a fixed test image, the native decoder decodes it, and it must come back the right size,
   above 30 dB PSNR and with no cutout texel on the wrong side of the alpha threshold. F3 shows which encoder BC7 goes
-  through, and why not the GPU when it was asked for. This build has no GPU encoder yet, so the setting reports that
-  and everything stays on the CPU.
+  through, and why not the GPU when it was asked for.
+- A BC7 compute-shader encoder (`ComputeBc7Encoder`, `bc7_encode.comp`, GLSL 4.30): modes 6 and 5 for every block,
+  modes 1 and 3 (opaque) and 7 (alpha) on the best two-subset partitions by PCA residual. Lines are fitted by PCA,
+  quantized with every p-bit choice and refined twice by least squares; no index may move a texel across the cutout
+  threshold, and opaque texels are steered to stay at 255. On the vanilla atlases it is within 0.2 dB of the CPU
+  encoder's default preset (above it on items and particles). Texels and blocks go through shader storage buffers,
+  the program and buffer bindings are restored, and large images are split into dispatches of 65536 blocks. It runs
+  in the startup check; atlases are not routed to it yet, so F3 reports "GPU check passed, not used yet".
 - Atlases with animated sprites (the block atlas) are compressed again, by default (`compressAnimatedAtlases`, on):
   `CompressedAnimationUploader`, `AnimationReader` and the `SpriteContents.upload` mixin are back. Every keyframe is
   precoded once in the background when the atlas is registered, and so is every blended step of the interpolated

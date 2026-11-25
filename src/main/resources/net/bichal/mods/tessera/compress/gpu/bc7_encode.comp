@@ -1,0 +1,383 @@
+#version 430
+// BC7 encoder, one invocation per 4x4 block. Tessera's own code; the tables are the BC7 format's.
+// Modes tried per block, the smallest RGBA error wins:
+//   6  one RGBA line, 4-bit indices                              every block
+//   5  RGB line + separate alpha line, 2-bit indices each       blocks with alpha below 255
+//   1  two RGB subsets, 6-bit + shared p-bit, 3-bit indices     opaque blocks   } uFlags & 1, the uCandidates
+//   3  two RGB subsets, 7-bit + unique p-bits, 2-bit indices    opaque blocks   } partitions with the smallest
+//   7  two RGBA subsets, 5-bit + unique p-bits, 2-bit indices   alpha blocks    } PCA residual, in full
+// Lines are fitted by PCA, quantized with every p-bit choice and refined twice by least squares.
+// Opaque blocks always decode to alpha 255, and no index may move a texel across the cutout
+// threshold (alpha 26, Minecraft's 0.1) while another index keeps it on its side; opaque texels in
+// mixed blocks are steered to stay at 255.
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer Source { uint pixels[]; };   // RGBA8, R in the low byte
+layout(std430, binding = 1) writeonly buffer Blocks { uvec4 blocks[]; }; // 16 bytes per block, row-major
+
+uniform uint uWidth;
+uniform uint uHeight;
+uniform uint uBlocksX;
+uniform uint uBlockCount;
+uniform uint uBlockOffset; // first block of this dispatch
+uniform uint uFlags;       // bit 0: two-subset modes (1, 3, 7)
+uniform uint uCandidates;  // partitions encoded in full per two-subset mode (1-8)
+
+const uint PARTITION2[64] = uint[64](
+    0xccccu,0x8888u,0xeeeeu,0xecc8u,0xc880u,0xfeecu,0xfec8u,0xec80u,0xc800u,0xffecu,0xfe80u,0xe800u,0xffe8u,0xff00u,0xfff0u,0xf000u,
+    0xf710u,0x008eu,0x7100u,0x08ceu,0x008cu,0x7310u,0x3100u,0x8cceu,0x088cu,0x3110u,0x6666u,0x366cu,0x17e8u,0x0ff0u,0x718eu,0x399cu,
+    0xaaaau,0xf0f0u,0x5a5au,0x33ccu,0x3c3cu,0x55aau,0x9696u,0xa55au,0x73ceu,0x13c8u,0x324cu,0x3bdcu,0x6996u,0xc33cu,0x9966u,0x0660u,
+    0x0272u,0x04e4u,0x4e40u,0x2720u,0xc936u,0x936cu,0x39c6u,0x639cu,0x9336u,0x9cc6u,0x817eu,0xe718u,0xccf0u,0x0fccu,0x7744u,0xee22u);
+const uint ANCHOR2[64] = uint[64](
+    15u,15u,15u,15u,15u,15u,15u,15u, 15u,15u,15u,15u,15u,15u,15u,15u, 15u,2u,8u,2u,2u,8u,8u,15u, 2u,8u,2u,2u,8u,8u,2u,2u,
+    15u,15u,6u,8u,2u,8u,15u,15u, 2u,8u,2u,2u,2u,15u,15u,6u, 6u,2u,6u,8u,15u,15u,2u,2u, 15u,15u,15u,15u,15u,2u,2u,15u);
+const int W2[4] = int[4](0, 21, 43, 64);
+const int W3[8] = int[8](0, 9, 18, 27, 37, 46, 55, 64);
+const int W4[16] = int[16](0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64);
+const int CUTOUT = 26;
+const int CROSS_PENALTY = 1 << 20;
+// An opaque texel that comes back below 255 shows on translucent render types; worth some colour error.
+const int OPAQUE_PENALTY = 256;
+
+// p-bit modes
+const int PB_NONE = 0;
+const int PB_SHARED = 1; // one per subset
+const int PB_UNIQUE = 2; // one per endpoint
+
+vec4 px[16];
+ivec4 ipx[16];
+
+int weightOf(int indexBits, uint i) {
+    return indexBits == 2 ? W2[i] : (indexBits == 3 ? W3[i] : W4[i]);
+}
+
+// ---- line fit ----
+
+void fitLine(uint mask, bool alpha, out vec4 lo, out vec4 hi, out float residual) {
+    vec4 mean = vec4(0.0);
+    float n = 0.0;
+    for (uint i = 0u; i < 16u; i++) {
+        if ((mask & (1u << i)) != 0u) { mean += px[i]; n += 1.0; }
+    }
+    mean /= max(n, 1.0);
+    if (!alpha) mean.w = 255.0;
+    mat4 cov = mat4(0.0);
+    for (uint i = 0u; i < 16u; i++) {
+        if ((mask & (1u << i)) != 0u) {
+            vec4 d = px[i] - mean;
+            if (!alpha) d.w = 0.0;
+            cov += outerProduct(d, d);
+        }
+    }
+    vec4 axis = vec4(cov[0][0], cov[1][1], cov[2][2], cov[3][3]) + vec4(0.0001, 0.0002, 0.0003, alpha ? 0.0004 : 0.0);
+    for (int k = 0; k < 8; k++) {
+        vec4 next = cov * axis;
+        float len = length(next);
+        if (len < 1e-6) { axis = vec4(0.0); break; }
+        axis = next / len;
+    }
+    float tmin = 0.0, tmax = 0.0;
+    for (uint i = 0u; i < 16u; i++) {
+        if ((mask & (1u << i)) != 0u) {
+            vec4 d = px[i] - mean;
+            if (!alpha) d.w = 0.0;
+            float t = dot(d, axis);
+            tmin = min(tmin, t);
+            tmax = max(tmax, t);
+        }
+    }
+    lo = clamp(mean + axis * tmin, 0.0, 255.0);
+    hi = clamp(mean + axis * tmax, 0.0, 255.0);
+    residual = (cov[0][0] + cov[1][1] + cov[2][2] + cov[3][3]) - dot(axis, cov * axis);
+}
+
+// Least-squares endpoints for fixed indices; leaves lo/hi alone when the system is degenerate.
+void refine(uint mask, uint idx[16], int indexBits, bool alpha, inout vec4 lo, inout vec4 hi) {
+    float a = 0.0, b = 0.0, c = 0.0;
+    vec4 x0 = vec4(0.0), x1 = vec4(0.0);
+    for (uint i = 0u; i < 16u; i++) {
+        if ((mask & (1u << i)) != 0u) {
+            float w = float(weightOf(indexBits, idx[i])) / 64.0;
+            float v = 1.0 - w;
+            a += v * v; b += v * w; c += w * w;
+            x0 += v * px[i]; x1 += w * px[i];
+        }
+    }
+    float det = a * c - b * b;
+    if (abs(det) < 1e-3) return;
+    vec4 nlo = clamp((c * x0 - b * x1) / det, 0.0, 255.0);
+    vec4 nhi = clamp((a * x1 - b * x0) / det, 0.0, 255.0);
+    if (!alpha) { nlo.w = 255.0; nhi.w = 255.0; }
+    lo = nlo; hi = nhi;
+}
+
+// ---- quantization: an n-bit code (low bit = p-bit when p >= 0) expanded to 8 bits ----
+
+int expand(int code, int n) {
+    return n >= 8 ? code : ((code << (8 - n)) | (code >> (2 * n - 8)));
+}
+
+int quantize(float v, int n, int p, out int code) {
+    int maxCode = (1 << n) - 1;
+    int target = int(floor(v + 0.5));
+    int guess = int(floor(v * float(maxCode) / 255.0 + 0.5));
+    int best = 1 << 30;
+    int bestDecoded = 0;
+    code = 0;
+    for (int c = guess - 2; c <= guess + 2; c++) {
+        if (c < 0 || c > maxCode) continue;
+        if (p >= 0 && (c & 1) != p) continue;
+        int d = expand(c, n);
+        int e = abs(d - target);
+        if (e < best) { best = e; bestDecoded = d; code = c; }
+    }
+    return bestDecoded;
+}
+
+// ---- index selection ----
+
+int texelError(ivec4 c, uint i, bool alpha) {
+    ivec4 d = c - ipx[i];
+    int e = d.x * d.x + d.y * d.y + d.z * d.z;
+    if (alpha) {
+        e += d.w * d.w;
+        if ((c.w >= CUTOUT) != (ipx[i].w >= CUTOUT)) e += CROSS_PENALTY;
+        if (ipx[i].w == 255 && c.w != 255) e += OPAQUE_PENALTY;
+    }
+    return e;
+}
+
+int assign(uint mask, ivec4 e0, ivec4 e1, int indexBits, bool alpha, inout uint idx[16]) {
+    int count = 1 << indexBits;
+    int total = 0;
+    for (uint i = 0u; i < 16u; i++) {
+        if ((mask & (1u << i)) == 0u) continue;
+        int best = 1 << 30;
+        uint bestIndex = 0u;
+        for (int k = 0; k < count; k++) {
+            int w = weightOf(indexBits, uint(k));
+            int e = texelError((e0 * (64 - w) + e1 * w + 32) >> 6, i, alpha);
+            if (e < best) { best = e; bestIndex = uint(k); }
+        }
+        idx[i] = bestIndex;
+        total += best;
+    }
+    return total;
+}
+
+// ---- one subset: fit, quantize with every p-bit choice, refine ----
+// colorBits excludes the p-bit; codes come back with the p-bit as their low bit when there is one.
+
+int encodeSubset(uint mask, bool alpha, bool opaque, int colorBits, int alphaBits, int pbitMode, int indexBits,
+                 out ivec4 c0, out ivec4 c1, inout uint idx[16]) {
+    vec4 lo, hi; float residual;
+    fitLine(mask, alpha, lo, hi, residual);
+    int hasP = pbitMode == PB_NONE ? 0 : 1;
+    int combos = pbitMode == PB_NONE ? 1 : (pbitMode == PB_SHARED ? 2 : 4);
+    int bestErr = 1 << 30;
+    c0 = ivec4(0); c1 = ivec4(0);
+    uint bestIdx[16] = idx;
+    for (int pass = 0; pass < 3; pass++) {
+        for (int p = 0; p < combos; p++) {
+            int p0 = pbitMode == PB_NONE ? -1 : (p & 1);
+            int p1 = pbitMode == PB_NONE ? -1 : (pbitMode == PB_SHARED ? p0 : (p >> 1));
+            // Opaque alpha 255 needs the all-ones code, so an odd p-bit where alpha has one.
+            if (opaque && alpha && hasP == 1 && (p0 == 0 || p1 == 0)) continue;
+            ivec4 q0 = ivec4(0), q1 = ivec4(0), e0 = ivec4(255), e1 = ivec4(255);
+            int channels = alpha ? 4 : 3;
+            for (int ch = 0; ch < channels; ch++) {
+                int bitsHere = (ch == 3 ? alphaBits : colorBits) + hasP;
+                int code;
+                e0[ch] = quantize(lo[ch], bitsHere, p0, code); q0[ch] = code;
+                e1[ch] = quantize(hi[ch], bitsHere, p1, code); q1[ch] = code;
+            }
+            uint tryIdx[16] = idx;
+            int err = assign(mask, e0, e1, indexBits, alpha, tryIdx);
+            if (err < bestErr) { bestErr = err; c0 = q0; c1 = q1; bestIdx = tryIdx; }
+        }
+        if (pass < 2) refine(mask, bestIdx, indexBits, alpha, lo, hi);
+    }
+    idx = bestIdx;
+    return bestErr;
+}
+
+// ---- bit writer ----
+
+uint bits[4];
+uint bitPos;
+
+void put(uint value, uint count) {
+    uint word = bitPos >> 5u;
+    uint shift = bitPos & 31u;
+    bits[word] |= value << shift;
+    if (shift + count > 32u) bits[word + 1u] |= value >> (32u - shift);
+    bitPos += count;
+}
+
+void beginBlock() { bits = uint[4](0u, 0u, 0u, 0u); bitPos = 0u; }
+uvec4 endBlock() { return uvec4(bits[0], bits[1], bits[2], bits[3]); }
+
+// ---- mode 6 ----
+
+int mode6(bool opaque, out uvec4 result) {
+    uint idx[16] = uint[16](0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u);
+    ivec4 c0, c1;
+    int err = encodeSubset(0xffffu, true, opaque, 7, 7, PB_UNIQUE, 4, c0, c1, idx);
+    if (idx[0] >= 8u) { // anchor's top bit must be 0
+        ivec4 t = c0; c0 = c1; c1 = t;
+        for (uint i = 0u; i < 16u; i++) idx[i] = 15u - idx[i];
+    }
+    beginBlock();
+    put(64u, 7u);
+    for (int ch = 0; ch < 4; ch++) { put(uint(c0[ch] >> 1), 7u); put(uint(c1[ch] >> 1), 7u); }
+    put(uint(c0.x & 1), 1u); put(uint(c1.x & 1), 1u);
+    put(idx[0], 3u);
+    for (uint i = 1u; i < 16u; i++) put(idx[i], 4u);
+    result = endBlock();
+    return err;
+}
+
+// ---- mode 5 ----
+
+int mode5(out uvec4 result) {
+    uint cIdx[16] = uint[16](0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u);
+    ivec4 c0, c1;
+    int colorErr = encodeSubset(0xffffu, false, false, 7, 7, PB_NONE, 2, c0, c1, cIdx);
+    // Alpha: its own line over [min, max], 8-bit endpoints, the cutout threshold respected.
+    int amin = 255, amax = 0;
+    for (uint i = 0u; i < 16u; i++) { amin = min(amin, ipx[i].w); amax = max(amax, ipx[i].w); }
+    uint aIdx[16];
+    int alphaErr = 0;
+    for (uint i = 0u; i < 16u; i++) {
+        int best = 1 << 30; uint bi = 0u;
+        for (uint k = 0u; k < 4u; k++) {
+            int a = (amin * (64 - W2[k]) + amax * W2[k] + 32) >> 6;
+            int e = (a - ipx[i].w) * (a - ipx[i].w);
+            if ((a >= CUTOUT) != (ipx[i].w >= CUTOUT)) e += CROSS_PENALTY;
+            if (ipx[i].w == 255 && a != 255) e += OPAQUE_PENALTY;
+            if (e < best) { best = e; bi = k; }
+        }
+        aIdx[i] = bi; alphaErr += best;
+    }
+    if (cIdx[0] >= 2u) {
+        ivec4 t = c0; c0 = c1; c1 = t;
+        for (uint i = 0u; i < 16u; i++) cIdx[i] = 3u - cIdx[i];
+    }
+    if (aIdx[0] >= 2u) {
+        int t = amin; amin = amax; amax = t;
+        for (uint i = 0u; i < 16u; i++) aIdx[i] = 3u - aIdx[i];
+    }
+    beginBlock();
+    put(32u, 6u);
+    put(0u, 2u); // no channel rotation
+    for (int ch = 0; ch < 3; ch++) { put(uint(c0[ch]), 7u); put(uint(c1[ch]), 7u); }
+    put(uint(amin), 8u); put(uint(amax), 8u);
+    put(cIdx[0], 1u);
+    for (uint i = 1u; i < 16u; i++) put(cIdx[i], 2u);
+    put(aIdx[0], 1u);
+    for (uint i = 1u; i < 16u; i++) put(aIdx[i], 2u);
+    result = endBlock();
+    return colorErr + alphaErr;
+}
+
+// ---- two-subset modes (1, 3, 7) ----
+
+int twoSubsets(int mode, bool opaque, out uvec4 result) {
+    bool alpha = mode == 7;
+    int colorBits = mode == 1 ? 6 : (mode == 3 ? 7 : 5);
+    int pbitMode = mode == 1 ? PB_SHARED : PB_UNIQUE;
+    int indexBits = mode == 1 ? 3 : 2;
+
+    // Rank the partitions by the PCA residual of their two subsets.
+    uint best[8] = uint[8](0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+    float bestScore[8] = float[8](1e30, 1e30, 1e30, 1e30, 1e30, 1e30, 1e30, 1e30);
+    uint keep = clamp(uCandidates, 1u, 8u);
+    for (uint part = 0u; part < 64u; part++) {
+        vec4 lo, hi; float r0, r1;
+        uint m1 = PARTITION2[part];
+        fitLine(~m1 & 0xffffu, alpha, lo, hi, r0);
+        fitLine(m1, alpha, lo, hi, r1);
+        float score = r0 + r1;
+        for (uint k = 0u; k < keep; k++) {
+            if (score < bestScore[k]) {
+                for (uint j = keep - 1u; j > k; j--) { bestScore[j] = bestScore[j - 1u]; best[j] = best[j - 1u]; }
+                bestScore[k] = score; best[k] = part;
+                break;
+            }
+        }
+    }
+    int bestErr = 1 << 30;
+    result = uvec4(0u);
+    for (uint k = 0u; k < keep; k++) {
+        uint part = best[k];
+        uint m1 = PARTITION2[part];
+        uint m0 = ~m1 & 0xffffu;
+        uint idx[16] = uint[16](0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u,0u);
+        ivec4 a0, a1, b0, b1;
+        int err = encodeSubset(m0, alpha, opaque, colorBits, colorBits, pbitMode, indexBits, a0, a1, idx);
+        if (err >= bestErr) continue;
+        err += encodeSubset(m1, alpha, opaque, colorBits, colorBits, pbitMode, indexBits, b0, b1, idx);
+        if (err >= bestErr) continue;
+        bestErr = err;
+        uint anchor = ANCHOR2[part];
+        uint top = (1u << uint(indexBits)) - 1u;
+        uint halfway = 1u << uint(indexBits - 1);
+        if (idx[0] >= halfway) {
+            ivec4 t = a0; a0 = a1; a1 = t;
+            for (uint i = 0u; i < 16u; i++) if ((m0 & (1u << i)) != 0u) idx[i] = top - idx[i];
+        }
+        if (idx[anchor] >= halfway) {
+            ivec4 t = b0; b0 = b1; b1 = t;
+            for (uint i = 0u; i < 16u; i++) if ((m1 & (1u << i)) != 0u) idx[i] = top - idx[i];
+        }
+        beginBlock();
+        put(1u << uint(mode), uint(mode + 1));
+        put(part, 6u);
+        int channels = alpha ? 4 : 3;
+        for (int ch = 0; ch < channels; ch++) {
+            put(uint(a0[ch] >> 1), uint(colorBits)); put(uint(a1[ch] >> 1), uint(colorBits));
+            put(uint(b0[ch] >> 1), uint(colorBits)); put(uint(b1[ch] >> 1), uint(colorBits));
+        }
+        if (pbitMode == PB_SHARED) {
+            put(uint(a0.x & 1), 1u); put(uint(b0.x & 1), 1u);
+        } else {
+            put(uint(a0.x & 1), 1u); put(uint(a1.x & 1), 1u); put(uint(b0.x & 1), 1u); put(uint(b1.x & 1), 1u);
+        }
+        for (uint i = 0u; i < 16u; i++) put(idx[i], (i == 0u || i == anchor) ? uint(indexBits - 1) : uint(indexBits));
+        result = endBlock();
+    }
+    return bestErr;
+}
+
+void main() {
+    uint block = gl_GlobalInvocationID.x + uBlockOffset;
+    if (block >= uBlockCount) return;
+    uint bx = block % uBlocksX, by = block / uBlocksX;
+    bool opaque = true;
+    for (uint i = 0u; i < 16u; i++) {
+        uint x = min(bx * 4u + (i & 3u), uWidth - 1u);
+        uint y = min(by * 4u + (i >> 2u), uHeight - 1u);
+        uint c = pixels[y * uWidth + x];
+        ipx[i] = ivec4(int(c & 255u), int((c >> 8u) & 255u), int((c >> 16u) & 255u), int(c >> 24u));
+        px[i] = vec4(ipx[i]);
+        if (ipx[i].w != 255) opaque = false;
+    }
+    uvec4 result, candidate;
+    int err = mode6(opaque, result);
+    if (!opaque) {
+        int e = mode5(candidate);
+        if (e < err) { err = e; result = candidate; }
+    }
+    if ((uFlags & 1u) != 0u) {
+        if (opaque) {
+            int e = twoSubsets(1, true, candidate);
+            if (e < err) { err = e; result = candidate; }
+            e = twoSubsets(3, true, candidate);
+            if (e < err) { err = e; result = candidate; }
+        } else {
+            int e = twoSubsets(7, false, candidate);
+            if (e < err) { err = e; result = candidate; }
+        }
+    }
+    blocks[block] = result;
+}

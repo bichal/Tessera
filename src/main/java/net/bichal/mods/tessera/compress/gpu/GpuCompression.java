@@ -21,12 +21,12 @@ public final class GpuCompression {
         OFF,
         /** The context lacks something the encoder needs (macOS, old drivers). */
         UNSUPPORTED,
-        /** This build has no GPU encoder yet. */
-        NO_ENCODER,
         /** The native BC7 decoder the startup check needs did not load. */
         UNVERIFIABLE,
         /** The encoder failed its startup check this session. */
         FAILED,
+        /** The encoder passed its startup check; atlases are not routed to it yet, so they stay on the CPU. */
+        CHECKED,
         /** Encoding atlases on the GPU. */
         ACTIVE
     }
@@ -36,8 +36,10 @@ public final class GpuCompression {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Tessera/GpuCompression");
 
-    /** The GPU encoder of this build; none yet, so the setting reports {@link State#NO_ENCODER}. */
-    private static final GpuBc7Encoder ENCODER = null;
+    /** The GPU encoder of this build. */
+    private static final GpuBc7Encoder ENCODER = new ComputeBc7Encoder();
+    /** Whether atlas compression sends BC7 to the GPU encoder; until it does, a passed check is {@link State#CHECKED}. */
+    private static final boolean ROUTED = false;
 
     private static volatile Status status = new Status(State.OFF, "");
     /** Outcome of the startup check, run at most once per session. */
@@ -68,6 +70,9 @@ public final class GpuCompression {
         if (!status.equals(previous) && status.state() != State.OFF) {
             if (status.state() == State.ACTIVE) {
                 LOGGER.info("GPU compression active: {} ({})", ENCODER.name(), status.detail());
+            } else if (status.state() == State.CHECKED) {
+                LOGGER.info("GPU encoder {} passed its startup check ({}); atlases are still encoded on the CPU "
+                        + "in this build", ENCODER.name(), status.detail());
             } else {
                 LOGGER.warn("GPU compression requested but not used, atlases are encoded on the CPU: {}",
                         status.detail());
@@ -83,9 +88,6 @@ public final class GpuCompression {
         if (!caps.supported()) {
             return new Status(State.UNSUPPORTED, caps.reason() + " on " + caps.renderer());
         }
-        if (ENCODER == null) {
-            return new Status(State.NO_ENCODER, "this build has no GPU encoder yet");
-        }
         if (!TesseraRuntime.isNativeActive()) {
             return new Status(State.UNVERIFIABLE, "the native bridge (needed to check the GPU encoder) did not load");
         }
@@ -95,7 +97,7 @@ public final class GpuCompression {
         if (!checkResult.passed()) {
             return new Status(State.FAILED, "startup check failed: " + checkResult.detail());
         }
-        return new Status(State.ACTIVE, checkResult.detail() + ", "
+        return new Status(ROUTED ? State.ACTIVE : State.CHECKED, checkResult.detail() + ", "
                 + String.format("%.1f ms", checkResult.nanos() / 1e6) + " for the test image");
     }
 
@@ -107,9 +109,9 @@ public final class GpuCompression {
             case OFF -> cpu;
             case ACTIVE -> "§eGPU (experimental)§r";
             case UNSUPPORTED -> cpu + " §7(GPU unsupported)§r";
-            case NO_ENCODER -> cpu + " §7(GPU: not in this build)§r";
             case UNVERIFIABLE -> cpu + " §7(GPU: cannot check)§r";
             case FAILED -> cpu + " §c(GPU check failed)§r";
+            case CHECKED -> cpu + " §7(GPU check passed, not used yet)§r";
         };
     }
 }
