@@ -15,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
@@ -53,116 +55,100 @@ public final class AtlasCompressionDriver {
     public record AssembledAtlas(ByteBuffer pixels, boolean opaque) {
     }
 
+    /** Sprites per parallel chunk when copying or digesting an atlas's sprites. */
+    private static final int SPRITES_PER_CHUNK = 16;
+
     /**
      * Assembles one contiguous RGBA8 buffer for an entire atlas from its
      * stitched sprites' pixel data, placed at each sprite's atlas position
      * ({@code TextureAtlasSprite.getX()/getY()}), and logs how many sprites are
-     * perceptual near-duplicates of another (see {@code NativeFamilyDetector}).
+     * perceptual near-duplicates of another (see {@link SpriteFamilyAnalyzer#groupBySimilarity}).
      *
      * @param label       for logging only (e.g. {@code "OPAQUE"}/{@code "ALPHA"})
      * @param regions     every sprite placed in this atlas by its own stitch pass
      * @param atlasWidth  the atlas's own packed width (from {@code Preparations.width()})
      * @param atlasHeight the atlas's own packed height (from {@code Preparations.height()})
-     * @return the assembled RGBA8 buffer and whether it is opaque, or {@code null} if native dedup
-     * detection is unavailable and the caller should fall back to
-     * an uncompressed upload for this atlas
+     * @return the assembled RGBA8 buffer and whether it is opaque, or {@code null} when native
+     * compression is disabled and the caller should fall back to an uncompressed upload
      */
-    /** Sprites per parallel chunk when copying or digesting an atlas's sprites. */
-    private static final int SPRITES_PER_CHUNK = 16;
-
-    @SuppressWarnings("resource")
     public static AssembledAtlas assembleAtlasBuffer(
             String label, Collection<TextureAtlasSprite> regions, int atlasWidth, int atlasHeight
     ) {
 
-        // Guard mirrors compress(): don't cross the JNI boundary, and don't pay for the
-        // pixel-buffer allocation/copy below, when the bridge never loaded (or is disabled).
-        // Without this check, NativeFamilyDetector.detect() calls straight into
-        // NativeBridge.detectFamiliesAndAssemble and throws UnsatisfiedLinkError instead
-        // of the clean vanilla-atlas fallback this method's own docstring promises.
-        // No native-availability gate here: TesseraRuntime already falls back to the
+        // Mirrors compress(): with native compression disabled the atlas stays vanilla, so there
+        // is nothing to assemble. No native-availability gate: TesseraRuntime falls back to the
         // software encoder, and gating on native would disable that fallback entirely.
         if (Config.get(Config.DISABLE_NATIVE_COMPRESSION)) {
             return null;
         }
 
-        long totalPixelBytes = 0L;
-        int[] widths = new int[regions.size()];
-        int[] heights = new int[regions.size()];
-        int[] srcOffsets = new int[regions.size()];
-        int[] destX = new int[regions.size()];
-        int[] destY = new int[regions.size()];
-
-        // Each sprite's region in the atlas: its pixels, plus (1.21.11+) a padding
-        // ring that repeats its edge pixels, as vanilla's animate_sprite blit draws it.
-        int[] paddings = new int[regions.size()];
-        int index = 0;
-        for (TextureAtlasSprite sprite : regions) {
-            int padding = TesseraCompat.padding(sprite);
-            int spriteWidth = sprite.contents().width() + 2 * padding;
-            int spriteHeight = sprite.contents().height() + 2 * padding;
-            paddings[index] = padding;
-            widths[index] = spriteWidth;
-            heights[index] = spriteHeight;
-            srcOffsets[index] = (int) totalPixelBytes;
-            destX[index] = sprite.getX();
-            destY[index] = sprite.getY();
-            totalPixelBytes += (long) spriteWidth * spriteHeight * 4;
-            index++;
-        }
-
-        ByteBuffer pixels = ByteBuffer.allocateDirect((int) totalPixelBytes).order(ByteOrder.LITTLE_ENDIAN);
-        List<NativeFamilyDetector.SpriteInput> spriteInputs = new ArrayList<>(regions.size());
-        for (int i = 0; i < regions.size(); i++) {
-            spriteInputs.add(new NativeFamilyDetector.SpriteInput(
-                    srcOffsets[i], widths[i], heights[i], destX[i], destY[i], false));
-        }
-
-        // Each sprite fills its own slice of the buffer, so groups of sprites are copied in parallel.
+        // Each sprite writes its own rectangle of the atlas, so groups of sprites are copied in
+        // parallel, each fingerprinted where it lands. A rectangle that does not fit is left out.
+        byte[] atlas = new byte[atlasWidth * atlasHeight * 4];
         TextureAtlasSprite[] sprites = regions.toArray(new TextureAtlasSprite[0]);
+        long[] fingerprints = new long[sprites.length];
         int groups = (sprites.length + SPRITES_PER_CHUNK - 1) / SPRITES_PER_CHUNK;
         boolean[] opaqueGroups = new boolean[groups];
         ParallelWork.forEach(groups, group -> {
-            boolean groupOpaque = true;
+            int texelAnd = -1;
+            int[] row = new int[0];
             for (int i = group * SPRITES_PER_CHUNK, end = Math.min(sprites.length, i + SPRITES_PER_CHUNK); i < end; i++) {
                 TextureAtlasSprite sprite = sprites[i];
-                int padding = paddings[i];
-                int maxX = sprite.contents().width() - 1;
-                int maxY = sprite.contents().height() - 1;
-                int at = srcOffsets[i];
-                for (int y = 0; y < heights[i]; y++) {
-                    int sy = Math.max(0, Math.min(maxY, y - padding));
-                    for (int x = 0; x < widths[i]; x++) {
-                        int abgr = TesseraCompat.spriteAbgr(sprite, 0, Math.max(0, Math.min(maxX, x - padding)), sy);
-                        groupOpaque &= (abgr >>> 24) == 0xFF;
-                        pixels.putInt(at, abgr);
-                        at += 4;
+                int padding = TesseraCompat.padding(sprite);
+                int contentWidth = sprite.contents().width();
+                int contentHeight = sprite.contents().height();
+                int width = contentWidth + 2 * padding;
+                int height = contentHeight + 2 * padding;
+                int originX = sprite.getX();
+                int originY = sprite.getY();
+                if (originX < 0 || originY < 0 || originX + width > atlasWidth || originY + height > atlasHeight) {
+                    continue;
+                }
+                if (row.length < width) {
+                    row = new int[width];
+                }
+                int readY = -1;
+                for (int y = 0; y < height; y++) {
+                    int sy = Math.max(0, Math.min(contentHeight - 1, y - padding));
+                    if (sy != readY) {
+                        readY = sy;
+                        // The sprite row goes in the middle; its edge texels repeat over the padding.
+                        TesseraCompat.spriteRow(sprite, sy, row);
+                        System.arraycopy(row, 0, row, padding, contentWidth);
+                        for (int x = 0; x < padding; x++) {
+                            row[x] = row[padding];
+                            row[padding + contentWidth + x] = row[padding + contentWidth - 1];
+                        }
+                        for (int x = 0; x < width; x++) {
+                            texelAnd &= row[x];
+                        }
+                    }
+                    int at = ((originY + y) * atlasWidth + originX) * 4;
+                    for (int x = 0; x < width; x++, at += 4) {
+                        INT_LE.set(atlas, at, row[x]);
                     }
                 }
+                fingerprints[i] = SpriteFamilyAnalyzer.fingerprint(
+                        atlas, (originY * atlasWidth + originX) * 4, width, height, atlasWidth);
             }
-            opaqueGroups[group] = groupOpaque;
+            opaqueGroups[group] = (texelAnd >>> 24) == 0xFF;
         });
         boolean opaque = true;
         for (boolean groupOpaque : opaqueGroups) {
             opaque &= groupOpaque;
         }
 
-        NativeFamilyDetector.DetectionResult result = NativeFamilyDetector.detect(
-                pixels, spriteInputs, atlasWidth, atlasHeight, Config.get(Config.DEDUP_SIMILARITY_THRESHOLD));
-        if (result == null) {
-            return null;
-        }
-
-        int duplicateCount = result.families().size() < spriteInputs.size()
-                ? spriteInputs.size() - result.families().size()
-                : 0;
-        if (duplicateCount > 0) {
+        int families = SpriteFamilyAnalyzer.groupBySimilarity(
+                fingerprints, new boolean[sprites.length], Config.get(Config.DEDUP_SIMILARITY_THRESHOLD)).size();
+        if (families < sprites.length) {
             LOGGER.info("{} of {} sprites in the {} atlas are perceptual near-duplicates of another sprite in this atlas.",
-                    duplicateCount, spriteInputs.size(), label);
+                    sprites.length - families, sprites.length, label);
         }
 
-        return new AssembledAtlas(result.atlasBuffer(), opaque);
+        return new AssembledAtlas(ByteBuffer.wrap(atlas), opaque);
     }
+
+    private static final VarHandle INT_LE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
 
     /**
      * What identifies an atlas for the whole-chain cache: a digest of its layout and every
@@ -196,6 +182,7 @@ public final class AtlasCompressionDriver {
         ParallelWork.forEach((sprites.length + SPRITES_PER_CHUNK - 1) / SPRITES_PER_CHUNK, group -> {
             MessageDigest spriteDigest = TesseraHasher.newDigest();
             byte[] row = new byte[0];
+            int[] texels = new int[0];
             ByteBuffer place = ByteBuffer.allocate(Integer.BYTES * 4).order(ByteOrder.LITTLE_ENDIAN);
             for (int i = group * SPRITES_PER_CHUNK, end = Math.min(sprites.length, i + SPRITES_PER_CHUNK); i < end; i++) {
                 TextureAtlasSprite sprite = sprites[i];
@@ -209,16 +196,21 @@ public final class AtlasCompressionDriver {
                 spriteDigest.update(place.array());
                 if (row.length < width * 4) {
                     row = new byte[width * 4];
+                    texels = new int[width];
                 }
-                ByteBuffer rowView = ByteBuffer.wrap(row).order(ByteOrder.LITTLE_ENDIAN);
                 AtlasFormats.Alpha alpha = AtlasFormats.Alpha.OPAQUE;
+                int readY = -1;
                 for (int y = 0; y < height; y++) {
                     int sy = Math.max(0, Math.min(maxY, y - padding));
-                    rowView.clear();
-                    for (int x = 0; x < width; x++) {
-                        int abgr = TesseraCompat.spriteAbgr(sprite, 0, Math.max(0, Math.min(maxX, x - padding)), sy);
-                        alpha = alpha.with(abgr >>> 24);
-                        rowView.putInt(abgr);
+                    if (sy != readY) {
+                        readY = sy;
+                        TesseraCompat.spriteRow(sprite, sy, texels);
+                        for (int x = 0; x <= maxX; x++) {
+                            alpha = alpha.with(texels[x] >>> 24);
+                        }
+                        for (int x = 0, at = 0; x < width; x++, at += 4) {
+                            INT_LE.set(row, at, texels[Math.max(0, Math.min(maxX, x - padding))]);
+                        }
                     }
                     spriteDigest.update(row, 0, width * 4);
                 }

@@ -93,7 +93,17 @@ public final class CompressedAnimationUploader {
                               Map<Integer, MipChainBuilder.MipLevel> deepLevels,
                               Map<Object, TextureAtlasSprite> spritesByState,
                               Map<SpriteContents, PixelSource> deepSources, GpuFrameBank bank,
-                              DeepBatch deep, Map<SpriteContents, ByteBuffer[]> shown) {
+                              DeepBatch deep, Map<SpriteContents, ByteBuffer[]> shown, Precode precode) {
+    }
+
+    /**
+     * 1.21.11+: while an atlas's frames are being precoded, its animations hold the frame the atlas
+     * has instead of encoding every frame they show on the render thread; once the precoded frames
+     * are in, every animation is drawn again from them. Render thread only.
+     */
+    private static final class Precode {
+        boolean running;
+        boolean redrawAll;
     }
 
     /** One frame's pixels, as ABGR, at {@code (x, y)} of its region at a mip level. */
@@ -293,7 +303,7 @@ public final class CompressedAnimationUploader {
         GpuFrameBank bank = Config.get(Config.GPU_COMPRESSION)
                 ? GpuFrameBank.create(atlas.location().toString(), target) : null;
         AtlasState state = new AtlasState(glId, target, maxLevel, alignedLevel, deepLevels, spritesByState,
-                deepSources(atlas, alignedLevel, maxLevel), bank, new DeepBatch(), new IdentityHashMap<>());
+                deepSources(atlas, alignedLevel, maxLevel), bank, new DeepBatch(), new IdentityHashMap<>(), new Precode());
         AtlasState previous = COMPRESSED_ATLASES.put(atlas, state);
         if (previous != null && previous.bank() != null) {
             previous.bank().release();
@@ -415,11 +425,7 @@ public final class CompressedAnimationUploader {
                 int iw = image.getWidth();
                 int ih = image.getHeight();
                 int[] copy = new int[iw * ih];
-                for (int y = 0; y < ih; y++) {
-                    for (int x = 0; x < iw; x++) {
-                        copy[y * iw + x] = TesseraCompat.abgr(image, x, y);
-                    }
-                }
+                TesseraCompat.imageAbgr(image, copy);
                 pixels[level] = copy;
                 widths[level] = iw;
             }
@@ -439,6 +445,7 @@ public final class CompressedAnimationUploader {
         CompressionPipeline.Target target = state.target();
         int quality = Config.get(Config.COMPRESSION_QUALITY);
         PENDING_UPGRADES.incrementAndGet();
+        state.precode().running = true;
         try {
             WORKER.execute(() -> {
                 try {
@@ -474,6 +481,7 @@ public final class CompressedAnimationUploader {
                                     + " sprite images on the render thread, {} ms building and encoding in the background.",
                             counts[0], counts[1], byLevel.size(), readMillis, (System.nanoTime() - start) / 1_000_000);
                     handOff(() -> {
+                        finishPrecode(state);
                         if (epoch != startEpoch) {
                             return; // a reload dropped these sprites
                         }
@@ -505,13 +513,21 @@ public final class CompressedAnimationUploader {
                     });
                 } catch (RuntimeException e) {
                     LOGGER.warn("Precoding animation frames failed; they are encoded when first shown", e);
+                    handOff(() -> finishPrecode(state));
                 } finally {
                     PENDING_UPGRADES.decrementAndGet();
                 }
             });
         } catch (RejectedExecutionException e) {
+            state.precode().running = false;
             PENDING_UPGRADES.decrementAndGet();
         }
+    }
+
+    /** The precode of {@code state} is over: its animations move again, all drawn on the next tick (render thread). */
+    private static void finishPrecode(AtlasState state) {
+        state.precode().running = false;
+        state.precode().redrawAll = true;
     }
 
     /** One sprite's precode regions per level, keyframes first, then its blends in timeline order. */
@@ -819,10 +835,17 @@ public final class CompressedAnimationUploader {
         }
         long drawStart = TesseraSelfTest.ENABLED ? System.nanoTime() : 0L;
         prepared = null; // vanilla may have bound something else since the last tick
-        prepareUploads(state);
+        prepareUploads(state); // applies a finished precode
+        Precode precode = state.precode();
+        if (precode.running) {
+            prepared = null;
+            return true; // the atlas keeps its frames until the precoded ones are in
+        }
+        boolean drawAll = all || precode.redrawAll;
+        precode.redrawAll = false;
         for (Map.Entry<Object, TextureAtlasSprite> entry : state.spritesByState().entrySet()) {
             Object animation = entry.getKey();
-            if (!all && !AnimationReader.needsToDraw(animation)) {
+            if (!drawAll && !AnimationReader.needsToDraw(animation)) {
                 continue;
             }
             TextureAtlasSprite sprite = entry.getValue();
@@ -1217,11 +1240,7 @@ public final class CompressedAnimationUploader {
                 int iw = image.getWidth();
                 int ih = image.getHeight();
                 int[] copy = new int[iw * ih];
-                for (int y = 0; y < ih; y++) {
-                    for (int x = 0; x < iw; x++) {
-                        copy[y * iw + x] = TesseraCompat.abgr(image, x, y);
-                    }
-                }
+                TesseraCompat.imageAbgr(image, copy);
                 pixels[level] = copy;
                 widths[level] = iw;
             }

@@ -220,6 +220,43 @@ public final class TesseraCompat {
         //?}
     }
 
+    /** Every pixel of {@code image}, as ABGR, row by row into {@code dst} (at least width * height long). */
+    public static void imageAbgr(NativeImage image, int[] dst) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        //? >=1.21.10 {
+        /*if (image.format() == NativeImage.Format.RGBA) {
+            org.lwjgl.system.MemoryUtil.memIntBuffer(image.getPointer(), width * height).get(0, dst, 0, width * height);
+            return;
+        }
+        *///?}
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                dst[y * width + x] = abgr(image, x, y);
+            }
+        }
+    }
+
+    /**
+     * Row {@code y} of a sprite's first frame, as ABGR, into {@code dst[0, width)}. From 1.21.10 on,
+     * an RGBA image (every stitched sprite) is copied straight from its memory, which holds ABGR
+     * ints already, instead of one checked call per pixel.
+     */
+    public static void spriteRow(TextureAtlasSprite sprite, int y, int[] dst) {
+        int width = sprite.contents().width();
+        //? >=1.21.10 {
+        /*NativeImage strip = sprite.contents().byMipLevel[0];
+        if (strip.format() == NativeImage.Format.RGBA && y >= 0 && y < strip.getHeight() && width <= strip.getWidth()) {
+            org.lwjgl.system.MemoryUtil.memIntBuffer(strip.getPointer() + (long) y * strip.getWidth() * 4, width)
+                    .get(0, dst, 0, width);
+            return;
+        }
+        *///?}
+        for (int x = 0; x < width; x++) {
+            dst[x] = spriteAbgr(sprite, 0, x, y);
+        }
+    }
+
     //? <1.21.10 {
     /**
      * 1.21.2 dropped NativeImage.getPixelRGBA (ABGR) for getPixel (ARGB), and the

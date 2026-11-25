@@ -1,8 +1,10 @@
 package net.bichal.mods.tessera.atlas;
 
-import net.bichal.mods.celeris.api.simd.VectorOperations;
 import net.bichal.mods.tessera.util.ParallelWork;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -10,15 +12,13 @@ import java.util.Deque;
 import java.util.List;
 
 /**
- * Sprite-family grouping, mip generation and alpha classification for atlas
- * assembly. Plain per-pixel arithmetic (box-filter averaging, an 8x8 DCT,
- * alpha scanning) with no OS or GPU dependency, so it stays in Java.
+ * Sprite-family grouping and mip generation for atlas assembly. Plain per-pixel
+ * arithmetic (box-filter averaging, an 8x8 DCT) with no OS or GPU dependency,
+ * so it stays in Java.
  *
- * <p>SIMD (through Celeris's {@link VectorOperations}, which falls back to
- * scalar code when {@code jdk.incubator.vector} is unavailable) is applied
- * only to {@link #downsampleBoxFilter}, which processes whole atlas rows. The
- * DCT fingerprint and per-sprite alpha scan touch at most 64 elements per
- * call, too little for vectorization to pay off, so they stay scalar.
+ * <p>{@link #downsampleBoxFilter} averages whole texels in integer registers,
+ * two channels per pass (see {@link #average4}), which needs no vector API and
+ * so runs as fast on every JVM.
  */
 public final class SpriteFamilyAnalyzer {
 
@@ -30,7 +30,7 @@ public final class SpriteFamilyAnalyzer {
     }
 
     // ----------------------------------------------------------------
-    // Box-filter downsampling (SIMD-accelerated: whole rows at a time)
+    // Box-filter downsampling
     // ----------------------------------------------------------------
 
     /** 2x box-filter downsample, edge-clamped. Returns {pixels, width, height} packed as a record. */
@@ -61,54 +61,58 @@ public final class SpriteFamilyAnalyzer {
     /** Output rows per parallel band. */
     private static final int BAND_ROWS = 64;
 
-    private static void downsampleRows(byte[] pixels, int w, int h, int outW, byte[] output, int firstRow, int endRow) {
-        // Reused per output row: four interleaved-channel float rows (the
-        // two source rows' even/odd-column contributions), summed and
-        // scaled via VectorOperations across the whole row width at once
-        // rather than per-texel scalar arithmetic.
-        float[] topSum = new float[outW * CHANNELS];
-        float[] bottomSum = new float[outW * CHANNELS];
+    private static final VarHandle INT_LE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
 
+    private static void downsampleRows(byte[] pixels, int w, int h, int outW, byte[] output, int firstRow, int endRow) {
+        if (pixels.length < w * h * CHANNELS) {
+            downsampleRowsShort(pixels, w, h, outW, output, firstRow, endRow);
+            return;
+        }
+        for (int outY = firstRow; outY < endRow; outY++) {
+            int row0 = Math.min(outY * 2, h - 1) * w;
+            int row1 = Math.min(outY * 2 + 1, h - 1) * w;
+            int out = outY * outW * CHANNELS;
+            for (int outX = 0; outX < outW; outX++, out += CHANNELS) {
+                int x0 = Math.min(outX * 2, w - 1);
+                int x1 = Math.min(outX * 2 + 1, w - 1);
+                INT_LE.set(output, out, average4(
+                        (int) INT_LE.get(pixels, (row0 + x0) * CHANNELS), (int) INT_LE.get(pixels, (row0 + x1) * CHANNELS),
+                        (int) INT_LE.get(pixels, (row1 + x0) * CHANNELS), (int) INT_LE.get(pixels, (row1 + x1) * CHANNELS)));
+            }
+        }
+    }
+
+    /**
+     * Per channel, {@code (sum + 2) / 4} of four RGBA8 texels packed as little-endian ints: the box
+     * filter with the Rust original's rounding. Two channels share each pass, one per 16-bit lane
+     * (a lane sums to at most 1022, so it never carries into the next).
+     */
+    static int average4(int a, int b, int c, int d) {
+        int even = (a & 0x00FF00FF) + (b & 0x00FF00FF) + (c & 0x00FF00FF) + (d & 0x00FF00FF) + 0x00020002;
+        int odd = ((a >>> 8) & 0x00FF00FF) + ((b >>> 8) & 0x00FF00FF) + ((c >>> 8) & 0x00FF00FF)
+                + ((d >>> 8) & 0x00FF00FF) + 0x00020002;
+        return ((even >>> 2) & 0x00FF00FF) | (((odd >>> 2) & 0x00FF00FF) << 8);
+    }
+
+    /** {@link #downsampleRows} for a buffer shorter than its size says: missing bytes read as 0. */
+    private static void downsampleRowsShort(byte[] pixels, int w, int h, int outW, byte[] output, int firstRow, int endRow) {
         for (int outY = firstRow; outY < endRow; outY++) {
             int y0 = Math.min(outY * 2, h - 1);
             int y1 = Math.min(outY * 2 + 1, h - 1);
-
-            fillRowPairSum(pixels, w, h, y0, outW, topSum);
-            fillRowPairSum(pixels, w, h, y1, outW, bottomSum);
-
-            VectorOperations.addInPlace(topSum, bottomSum, outW * CHANNELS);
-            // Box filter of 4 texels: (sum + 2) / 4, matching the Rust
-            // implementation's integer rounding exactly (add half the
-            // divisor before truncating) rather than plain float rounding,
-            // so results agree at the boundary cases too.
-            VectorOperations.addScalarInPlace(topSum, 2.0f, outW * CHANNELS);
-            VectorOperations.multiplyScalarInPlace(topSum, 0.25f, outW * CHANNELS);
-
-            int rowOffset = outY * outW * CHANNELS;
-            for (int i = 0; i < outW * CHANNELS; i++) {
-                output[rowOffset + i] = (byte) clampByte((int) topSum[i]);
+            for (int outX = 0; outX < outW; outX++) {
+                int x0 = Math.min(outX * 2, w - 1);
+                int x1 = Math.min(outX * 2 + 1, w - 1);
+                for (int c = 0; c < CHANNELS; c++) {
+                    int sum = byteAt(pixels, (y0 * w + x0) * CHANNELS + c) + byteAt(pixels, (y0 * w + x1) * CHANNELS + c)
+                            + byteAt(pixels, (y1 * w + x0) * CHANNELS + c) + byteAt(pixels, (y1 * w + x1) * CHANNELS + c);
+                    output[(outY * outW + outX) * CHANNELS + c] = (byte) ((sum + 2) >> 2);
+                }
             }
         }
     }
 
-    /** Sums the two horizontally-paired source texels (x0,x1) for every output column of one source row into {@code out}. */
-    private static void fillRowPairSum(byte[] pixels, int width, int height, int srcY, int outW, float[] out) {
-        for (int outX = 0; outX < outW; outX++) {
-            int x0 = Math.min(outX * 2, width - 1);
-            int x1 = Math.min(outX * 2 + 1, width - 1);
-            int base0 = (srcY * width + x0) * CHANNELS;
-            int base1 = (srcY * width + x1) * CHANNELS;
-            int outBase = outX * CHANNELS;
-            for (int c = 0; c < CHANNELS; c++) {
-                int v0 = base0 + c < pixels.length ? pixels[base0 + c] & 0xFF : 0;
-                int v1 = base1 + c < pixels.length ? pixels[base1 + c] & 0xFF : 0;
-                out[outBase + c] = v0 + v1;
-            }
-        }
-    }
-
-    private static int clampByte(int value) {
-        return Math.max(0, Math.min(255, value));
+    private static int byteAt(byte[] pixels, int index) {
+        return index < pixels.length ? pixels[index] & 0xFF : 0;
     }
 
     /** Repeated {@link #downsampleBoxFilter} down to a 1x1 level or {@code maxLevel} steps, whichever comes first. */
@@ -126,44 +130,6 @@ public final class SpriteFamilyAnalyzer {
     }
 
     // ----------------------------------------------------------------
-    // Alpha shape classification
-    // ----------------------------------------------------------------
-
-    public enum AlphaShape {FULLY_OPAQUE, PUNCH_THROUGH, BLENDED}
-
-    public static AlphaShape classifyAlphaShape(byte[] rgba8, int srcOffset, int width, int height) {
-        boolean sawTransparent = false;
-        boolean sawOpaque = false;
-
-        for (int y = 0; y < height; y++) {
-            int rowStart = srcOffset + y * width * CHANNELS;
-            int rowEnd = rowStart + width * CHANNELS;
-            if (rowEnd > rgba8.length) {
-                break;
-            }
-            for (int x = 0; x < width; x++) {
-                int alpha = rgba8[rowStart + x * CHANNELS + 3] & 0xFF;
-                if (alpha == 0) {
-                    sawTransparent = true;
-                } else if (alpha == 255) {
-                    sawOpaque = true;
-                } else {
-                    return AlphaShape.BLENDED;
-                }
-            }
-        }
-
-        if (sawTransparent) {
-            return AlphaShape.PUNCH_THROUGH;
-        }
-        return AlphaShape.FULLY_OPAQUE; // includes the empty-sprite case, same as the Rust original
-    }
-
-    public static boolean hasAlpha(byte[] rgba8, int srcOffset, int width, int height) {
-        return classifyAlphaShape(rgba8, srcOffset, width, height) != AlphaShape.FULLY_OPAQUE;
-    }
-
-    // ----------------------------------------------------------------
     // Perceptual fingerprint (8x8 DCT, pHash-style) + family grouping
     // ----------------------------------------------------------------
 
@@ -177,7 +143,7 @@ public final class SpriteFamilyAnalyzer {
         return table;
     }
 
-    private static double[][] downsampleToLuminance(byte[] rgba8, int srcOffset, int width, int height) {
+    private static double[][] downsampleToLuminance(byte[] rgba8, int srcOffset, int width, int height, int stride) {
         double[][] luminance = new double[DCT_SIZE][DCT_SIZE];
         for (int by = 0; by < DCT_SIZE; by++) {
             int startY = (by * height) / DCT_SIZE;
@@ -190,7 +156,7 @@ public final class SpriteFamilyAnalyzer {
                 int samples = 0;
                 for (int y = startY; y < Math.min(endY, height); y++) {
                     for (int x = startX; x < Math.min(endX, width); x++) {
-                        int offset = srcOffset + (y * width + x) * CHANNELS;
+                        int offset = srcOffset + (y * stride + x) * CHANNELS;
                         if (offset + 3 >= rgba8.length) {
                             continue;
                         }
@@ -234,7 +200,15 @@ public final class SpriteFamilyAnalyzer {
 
     /** 64-bit perceptual fingerprint of one sprite region, for {@link #groupBySimilarity}. */
     public static long fingerprint(byte[] rgba8, int srcOffset, int width, int height) {
-        double[][] luminance = downsampleToLuminance(rgba8, srcOffset, width, height);
+        return fingerprint(rgba8, srcOffset, width, height, width);
+    }
+
+    /**
+     * {@link #fingerprint(byte[], int, int, int)} of a region inside a larger image whose rows are
+     * {@code stride} texels apart, such as a sprite inside its assembled atlas.
+     */
+    public static long fingerprint(byte[] rgba8, int srcOffset, int width, int height, int stride) {
+        double[][] luminance = downsampleToLuminance(rgba8, srcOffset, width, height, stride);
         double[][] dct = forwardDct(luminance);
 
         double[] lowFrequency = new double[DCT_SIZE * DCT_SIZE - 1];
@@ -307,42 +281,5 @@ public final class SpriteFamilyAnalyzer {
             families.add(new Family(i, members));
         }
         return families;
-    }
-
-    // ----------------------------------------------------------------
-    // Atlas assembly
-    // ----------------------------------------------------------------
-
-    public record SpriteMeta(int srcOffset, int width, int height, int destX, int destY, boolean tinted) {
-    }
-
-    /**
-     * Blits sprites into a destination atlas buffer, row by row. When
-     * {@code padTo4} is set, the atlas is rounded up to the next multiple
-     * of 4 in each dimension (BC1/BC7 block alignment) -- padding stays
-     * zero-filled rather than edge-clamped, matching the Rust original
-     * (which only clamped sample coordinates during downsampling, not
-     * during this blit).
-     */
-    public static byte[] assembleAtlasFast(byte[] src, List<SpriteMeta> sprites, int atlasW, int atlasH, boolean padTo4) {
-        int aw = padTo4 ? Math.max((atlasW + 3) & ~3, 4) : atlasW;
-        int ah = padTo4 ? Math.max((atlasH + 3) & ~3, 4) : atlasH;
-        byte[] atlas = new byte[aw * ah * CHANNELS];
-
-        for (SpriteMeta sprite : sprites) {
-            if (sprite.destX() + sprite.width() > aw || sprite.destY() + sprite.height() > ah) {
-                continue;
-            }
-            for (int row = 0; row < sprite.height(); row++) {
-                int srcOff = sprite.srcOffset() + row * sprite.width() * CHANNELS;
-                int dstOff = ((sprite.destY() + row) * aw + sprite.destX()) * CHANNELS;
-                int rowBytes = sprite.width() * CHANNELS;
-                if (srcOff + rowBytes > src.length || dstOff + rowBytes > atlas.length) {
-                    continue;
-                }
-                System.arraycopy(src, srcOff, atlas, dstOff, rowBytes);
-            }
-        }
-        return atlas;
     }
 }

@@ -98,6 +98,20 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   back in sprite order, so the result does not depend on the threads). When another mod holds those threads, the
   work runs on the calling thread as before. The fingerprint now digests each sprite separately, so the first launch
   after updating misses the whole-chain cache once.
+- Assembling an atlas writes each sprite straight into its place in the atlas, in parallel over Celeris's worker
+  threads, and fingerprints it there for the near-duplicate count. It used to copy every sprite into a packed buffer,
+  copy that buffer again, fingerprint the sprites one after another on the render thread and copy them into the
+  atlas a third time. The alpha shape of each sprite, which nothing read, is no longer worked out
+  (`NativeFamilyDetector` is gone).
+- From 1.21.10 on, sprite pixels are read a row (or a whole image) at a time from the image's memory, which already
+  holds them as RGBA, instead of one checked call and a channel swap per pixel: the atlas copy, its fingerprint and
+  the animation precode snapshot.
+- The mip box filter averages whole texels in integer registers, two channels at a time, with the same rounding.
+  It went through Celeris's vector operations on float rows, which without `jdk.incubator.vector` ran as several
+  scalar passes per row.
+- 1.21.11+: while an atlas's animation frames are being precoded, its animations hold their current frame instead of
+  encoding each frame they show on the render thread, the stutter after every resource reload. Once the precoded
+  frames are in, every animation is drawn again from them.
 - The pixel unpack state is reset only before the first frame of a tick written from the CPU. Frames copied from the
   GPU frame bank do not read it, so a tick served entirely from the bank skips the reset.
 - Animations cost the render thread about an eighth of what they did on 1.21.11+ (self-test, vanilla block atlas:
