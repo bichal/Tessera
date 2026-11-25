@@ -114,6 +114,7 @@ final class GpuFrameBank {
             return null;
         }
         TesseraCompat.bindTexture(pages.get(position[0]));
+        CompressedAnimationUploader.resetUnpackOnce();
         GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, 0, position[1], position[2], w, h,
                 target.glFormat(), blocks.duplicate());
         TesseraCompat.bindTexture(atlasId);

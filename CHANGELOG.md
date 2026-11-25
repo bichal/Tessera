@@ -98,6 +98,8 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   back in sprite order, so the result does not depend on the threads). When another mod holds those threads, the
   work runs on the calling thread as before. The fingerprint now digests each sprite separately, so the first launch
   after updating misses the whole-chain cache once.
+- The pixel unpack state is reset only before the first frame of a tick written from the CPU. Frames copied from the
+  GPU frame bank do not read it, so a tick served entirely from the bank skips the reset.
 - Animations cost the render thread about an eighth of what they did on 1.21.11+ (self-test, vanilla block atlas:
   4.5 ms per tick down to 0.6 ms, the largest tick 9.5 ms down to 4.1 ms). Every interpolated frame used to be
   rebuilt texel by texel and hashed each tick only to find its blocks in the content cache; now its content key is

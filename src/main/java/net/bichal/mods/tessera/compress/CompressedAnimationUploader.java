@@ -115,13 +115,18 @@ public final class CompressedAnimationUploader {
 
     /** Atlas currently inside cycleAnimationFrames (up to 1.21.10), or null when it is not compressed. */
     private static AtlasState active;
-    /** Atlas whose texture and unpack state are set for this tick's uploads (see {@link #prepareUploads}). */
+    /** Atlas bound for this tick's uploads (see {@link #prepareUploads}). */
     private static AtlasState prepared;
     /**
-     * Atlas the work drained by {@link #prepareUploads} last bound (with its unpack state reset), so
-     * neither that work nor prepareUploads binds the same atlas again. Only valid while draining.
+     * Atlas the work drained by {@link #prepareUploads} last bound, so neither that work nor
+     * prepareUploads binds the same atlas again. Only valid while draining.
      */
     private static AtlasState drainBound;
+    /**
+     * Whether this tick's uploads have reset the pixel unpack state yet. Reset only before the first
+     * {@code glCompressedTexSubImage2D}: frames copied from the GPU frame bank do not read it.
+     */
+    private static boolean unpackReset;
 
     /**
      * The one background thread animations use: precodes frames, re-encodes new keyframes at the
@@ -705,14 +710,15 @@ public final class CompressedAnimationUploader {
     }
 
     /**
-     * Once per tick and atlas rather than per sprite: applies finished background work, binds the
-     * atlas and resets the unpack state its uploads need.
+     * Once per tick and atlas rather than per sprite: applies finished background work and binds the
+     * atlas (the unpack state waits for the first upload that reads it).
      */
     private static void prepareUploads(AtlasState state) {
         if (prepared == state) {
             return;
         }
         drainBound = null;
+        unpackReset = false; // vanilla may have set it since the last tick
         UPGRADES.drainTo(Runnable::run, UPGRADES.capacity());
         for (Runnable upgrade; (upgrade = UPGRADE_OVERFLOW.poll()) != null; ) {
             upgrade.run();
@@ -722,12 +728,19 @@ public final class CompressedAnimationUploader {
         prepared = state;
     }
 
-    /** Binds the atlas and resets the unpack state, unless the work being drained already did. */
+    /** Binds the atlas, unless the work being drained already did. */
     private static void bindForUploads(AtlasState state) {
         if (drainBound != state) {
             TesseraCompat.bindTexture(state.glId());
-            TesseraCompat.resetUnpackState();
             drainBound = state;
+        }
+    }
+
+    /** Resets the pixel unpack state once per tick, before the first upload that sends blocks from the CPU. */
+    static void resetUnpackOnce() {
+        if (!unpackReset) {
+            TesseraCompat.resetUnpackState();
+            unpackReset = true;
         }
     }
 
@@ -743,6 +756,7 @@ public final class CompressedAnimationUploader {
         if (state.bank() != null && state.bank().copy(state.glId(), level, x, y, w, h, blocks)) {
             return;
         }
+        resetUnpackOnce();
         GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, level, x, y, w, h, glFormat, blocks.duplicate());
     }
 
@@ -1223,7 +1237,7 @@ public final class CompressedAnimationUploader {
             return;
         }
         batch.ticks = 0;
-        List<DeepRequest> requests = List.copyOf(batch.waiting.values());
+        List<DeepRequest> requests = new ArrayList<>(batch.waiting.values());
         batch.waiting.clear();
         try {
             WORKER.execute(() -> patchDeepLevels(state, requests));
@@ -1312,6 +1326,7 @@ public final class CompressedAnimationUploader {
             }
             // Runs while the render thread prepares some atlas's uploads, before it binds that atlas.
             bindForUploads(state);
+            resetUnpackOnce();
             int glFormat = state.target().glFormat();
             for (DeepUpload upload : uploads) {
                 // Not through the frame bank: these bands change with every send.
