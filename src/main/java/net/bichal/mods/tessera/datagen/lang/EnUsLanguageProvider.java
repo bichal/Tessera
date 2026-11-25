@@ -39,6 +39,9 @@ public class EnUsLanguageProvider extends LanguageProvider {
         addConfigOption("gpuCompression", "GPU Compression (Experimental)",
                 "EXPERIMENTAL: encodes BC7 on the GPU instead of the CPU. Needs OpenGL 4.3 (not available on macOS). It may look worse, stutter or crash on some drivers; Tessera checks it at startup and stays on the CPU if the check fails. It also keeps animation frames in VRAM (up to 64 MB per atlas) and copies them on the GPU instead of uploading them every tick. F3 shows which one is in use.");
 
+        addConfigOption("compressGuiAtlas", "Compress GUI Atlas (Experimental)",
+                "EXPERIMENTAL: also compresses the GUI atlas (icons, hotbar, crosshair), about 1 MB in vanilla and much more with large resource packs. Transparent texels are written to decode as exactly zero so the crosshair stays clean; a few edges of icons may lose some colour detail. BC formats only.");
+
         // Deduplication Options
         addConfigOption("dedupSimilarityThreshold", "Deduplication Similarity Threshold",
                 "Hamming distance (0-64) for 64-bit pHash fingerprints. Lower values are stricter when merging duplicate sprites.");

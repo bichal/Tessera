@@ -7,6 +7,13 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Added
 
+- `compressGuiAtlas` (off by default, experimental): also compresses the GUI atlas. Its fully transparent texels are
+  set to 0 instead of bled, and after encoding every BC7 block that holds one is decoded (a pure-Java BC7 decoder,
+  checked bit for bit against the native one on every mode); where one does not come back as exactly 0, the block is
+  encoded again with one endpoint at 0 (mode 6, 5 or 4, whichever fits the visible texels best). The crosshair, which
+  inverts the colour behind it by the sprite's RGB, stays clean. On vanilla 1.21.11, 138 of 65536 blocks are
+  re-encoded, every one of the 90723 transparent texels decodes as 0, and the GUI keeps 41.5 dB; the self-test checks
+  it. With ASTC the GUI atlas stays RGBA8888. Animated GUI sprites keep the usual per-frame path.
 - `gpuCompression` (off by default, marked experimental in its tooltip and in the log): the switch for encoding BC7
   on the GPU. It needs compute shaders, image load/store, shader storage buffers, `glCopyImageSubData` and BC7
   (OpenGL 4.3; never on macOS), checked on the render thread. Before a GPU encoder may touch an atlas it has to pass a

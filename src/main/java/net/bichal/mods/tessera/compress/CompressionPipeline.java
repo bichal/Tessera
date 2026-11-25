@@ -1,9 +1,11 @@
 package net.bichal.mods.tessera.compress;
 
+import net.bichal.mods.tessera.atlas.AtlasPolicy;
 import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compress.backend.CompressionBackend;
 import net.bichal.mods.tessera.compress.backend.TesseraRuntime;
 import net.bichal.mods.tessera.compress.software.Bc1PunchThrough;
+import net.bichal.mods.tessera.compress.software.ExactTransparency;
 import net.bichal.mods.tessera.compress.gpu.GpuDispatch;
 import net.bichal.mods.tessera.compress.software.TransparentTexelBleed;
 import org.slf4j.Logger;
@@ -15,8 +17,9 @@ import java.nio.ByteOrder;
 /**
  * BC7/BC1/ASTC encoding entry point. {@link #compressBlocking} encodes on the
  * calling thread (callers run it off the render thread): it applies alpha
- * bleeding, guarantees direct buffers in and out, and retries once on the
- * pure-Java encoder if the native one fails.
+ * bleeding (exact zeros for the GUI atlas instead, see {@link ExactTransparency}),
+ * guarantees direct buffers in and out, and retries once on the pure-Java
+ * encoder if the native one fails.
  */
 public final class CompressionPipeline {
 
@@ -146,8 +149,14 @@ public final class CompressionPipeline {
             return null;
         }
         ByteBuffer input = toDirect(rgba8);
-        // Invisible texels must not steer block endpoints (white/grey fringes).
-        TransparentTexelBleed.apply(input, width, height);
+        boolean exactTransparency = AtlasPolicy.isGuiAtlas(atlasKey);
+        if (exactTransparency) {
+            // The crosshair inverts by the colour of transparent texels: they must decode as 0.
+            ExactTransparency.clearHidden(input, width, height);
+        } else {
+            // Invisible texels must not steer block endpoints (white/grey fringes).
+            TransparentTexelBleed.apply(input, width, height);
+        }
         CompressionBackend backend = TesseraRuntime.backend();
         ByteBuffer compressed;
         try {
@@ -173,7 +182,22 @@ public final class CompressionPipeline {
                 return null;
             }
         }
+        if (exactTransparency && target == Target.BC7) {
+            compressed = writableCopy(compressed);
+            int fixed = ExactTransparency.fixBc7(compressed, input, width, height);
+            LOGGER.info("Atlas '{}' ({}x{}): {} block(s) re-encoded so transparent texels decode as exactly 0.",
+                    atlasKey, width, height, fixed);
+        }
         return toDirect(compressed);
+    }
+
+    private static ByteBuffer writableCopy(ByteBuffer buffer) {
+        if (buffer.isDirect() && !buffer.isReadOnly()) {
+            return buffer.slice().order(ByteOrder.LITTLE_ENDIAN);
+        }
+        ByteBuffer copy = ByteBuffer.allocateDirect(buffer.remaining()).order(ByteOrder.LITTLE_ENDIAN);
+        copy.put(buffer.duplicate()).flip();
+        return copy;
     }
 
     private static ByteBuffer encode(CompressionBackend backend, Target target, ByteBuffer input, int width,

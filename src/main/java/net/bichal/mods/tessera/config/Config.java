@@ -16,6 +16,7 @@ public final class Config {
     public static final Setting<Boolean> DISABLE_NATIVE_COMPRESSION;
     public static final Setting<Boolean> COMPRESS_ANIMATED_ATLASES;
     public static final Setting<Boolean> GPU_COMPRESSION;
+    public static final Setting<Boolean> COMPRESS_GUI_ATLAS;
     public static final Setting<Boolean> SHOW_EXTENDED_DEBUG_BREAKDOWN;
 
     //? if fabric {
@@ -28,6 +29,8 @@ public final class Config {
                 "Also compress atlases that hold animated textures (the block atlas): frames are encoded once and written as compressed blocks. Off keeps those atlases RGBA8888. Ignored while Kerria is installed.");
         GPU_COMPRESSION = FabricConfig.bool("compression.gpuCompression", false,
                 "EXPERIMENTAL. Encodes BC7 on the GPU (compute shaders, OpenGL 4.3; not on macOS) instead of the CPU. It may look worse or misbehave on some drivers; Tessera checks the GPU encoder at startup and stays on the CPU if it fails. Also keeps animation frames in VRAM (up to 64 MB per atlas) and copies them on the GPU instead of uploading them every tick.");
+        COMPRESS_GUI_ATLAS = FabricConfig.bool("compression.compressGuiAtlas", false,
+                "EXPERIMENTAL. Also compresses the GUI atlas (icons, hotbar, crosshair). Its transparent texels are written so they decode as exactly zero (the crosshair inverts by their colour); blocks that mix transparency with several colours lose some colour detail. BC formats only (not ASTC).");
         DEDUP_SIMILARITY_THRESHOLD = FabricConfig.integer("deduplication.dedupSimilarityThreshold", 6, 0, 64,
                 "Maximum Hamming distance, 0 to 64, between two 64-bit pHash fingerprints for sprites to count as duplicates.");
         VRAM_BUDGET_TARGET_MB = FabricConfig.integer("vramBudget.vramBudgetTargetMb", 2048, 256, 16384,
@@ -79,6 +82,16 @@ public final class Config {
                 )
                 .translation("tessera.configuration.gpuCompression")
                 .define("gpuCompression", false));
+
+        COMPRESS_GUI_ATLAS = wrap(builder
+                .comment(
+                        "EXPERIMENTAL. Also compresses the GUI atlas (icons, hotbar, crosshair). Its transparent",
+                        "texels are written so they decode as exactly zero (the crosshair inverts by their colour);",
+                        "blocks that mix transparency with several colours lose some colour detail. BC formats only",
+                        "(not ASTC)."
+                )
+                .translation("tessera.configuration.compressGuiAtlas")
+                .define("compressGuiAtlas", false));
 
         builder.pop();
 
@@ -140,10 +153,12 @@ public final class Config {
      */
     public record ReloadSensitiveSnapshot(String cacheDirectory, int compressionQuality, boolean disableNativeCompression,
                                           boolean compressAnimatedAtlases, boolean gpuCompression,
+                                          boolean compressGuiAtlas,
                                           int dedupSimilarityThreshold, int vramBudgetTargetMb) {
         public static ReloadSensitiveSnapshot capture() {
             return new ReloadSensitiveSnapshot(get(CACHE_DIRECTORY), get(COMPRESSION_QUALITY),
                     get(DISABLE_NATIVE_COMPRESSION), get(COMPRESS_ANIMATED_ATLASES), get(GPU_COMPRESSION),
+                    get(COMPRESS_GUI_ATLAS),
                     get(DEDUP_SIMILARITY_THRESHOLD), get(VRAM_BUDGET_TARGET_MB));
         }
     }

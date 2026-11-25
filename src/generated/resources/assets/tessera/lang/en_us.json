@@ -12,6 +12,8 @@
   "tessera.configuration.cacheDirectory.tooltip": "Folder name where compiled BC7 texture blocks are stored on disk.",
   "tessera.configuration.compressAnimatedAtlases": "Compress Animated Atlases",
   "tessera.configuration.compressAnimatedAtlases.tooltip": "Also compress atlases with animated textures, such as the block atlas: each frame is encoded once. Off keeps them RGBA8888. Ignored while Kerria is installed.",
+  "tessera.configuration.compressGuiAtlas": "Compress GUI Atlas (Experimental)",
+  "tessera.configuration.compressGuiAtlas.tooltip": "EXPERIMENTAL: also compresses the GUI atlas (icons, hotbar, crosshair), about 1 MB in vanilla and much more with large resource packs. Transparent texels are written to decode as exactly zero so the crosshair stays clean; a few edges of icons may lose some colour detail. BC formats only.",
   "tessera.configuration.compression": "Compression",
   "tessera.configuration.compression.button": "Compression Settings",
   "tessera.configuration.compression.tooltip": "Configure BC7 native compression behavior and animation freezing.",

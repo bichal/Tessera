@@ -387,6 +387,9 @@ public final class TesseraSelfTest {
                     name, expectedFormat, width, height, levels, maxLevel, staticPsnr, staticError.count,
                     staticOk ? "" : " (below " + minStatic + ")"));
             ok &= staticOk;
+            if (AtlasPolicy.isGuiAtlas(name)) {
+                ok &= checkHiddenTexels(name, atlas, pixels, width, out);
+            }
             if (DUMP_DIR != null) {
                 dump(name, expectedFormat, atlas, pixels, width, height);
             }
@@ -538,6 +541,40 @@ public final class TesseraSelfTest {
     }
 
     /** Squared error of a sprite's region (without padding) against one of its frames; transparent texels skipped. */
+    /**
+     * The GUI atlas (compressGuiAtlas): every fully transparent texel of its static sprites decodes as
+     * exactly (0, 0, 0, 0), as the crosshair's inverted blending needs.
+     */
+    private static boolean checkHiddenTexels(String name, TextureAtlas atlas, ByteBuffer pixels, int atlasWidth,
+                                             List<String> out) {
+        int hidden = 0, wrong = 0, maxChannel = 0;
+        for (TextureAtlasSprite sprite : TesseraCompat.textures(atlas)) {
+            if (TesseraCompat.isAnimated(sprite.contents())) {
+                continue;
+            }
+            int padding = TesseraCompat.padding(sprite);
+            int x0 = sprite.getX() + padding, y0 = sprite.getY() + padding;
+            for (int y = 0; y < sprite.contents().height(); y++) {
+                for (int x = 0; x < sprite.contents().width(); x++) {
+                    if ((TesseraCompat.spriteAbgr(sprite, 0, x, y) >>> 24) != 0) {
+                        continue;
+                    }
+                    hidden++;
+                    int actual = pixels.getInt(((y0 + y) * atlasWidth + x0 + x) * 4);
+                    if (actual != 0) {
+                        wrong++;
+                        for (int shift = 0; shift < 32; shift += 8) {
+                            maxChannel = Math.max(maxChannel, (actual >>> shift) & 0xFF);
+                        }
+                    }
+                }
+            }
+        }
+        out.add(String.format("  %s: %d transparent texels, %d not decoded as 0 (largest channel %d)",
+                name, hidden, wrong, maxChannel));
+        return wrong == 0;
+    }
+
     private static void compare(ByteBuffer atlas, int atlasWidth, TextureAtlasSprite sprite, int frame, Error error) {
         int padding = TesseraCompat.padding(sprite);
         int x0 = sprite.getX() + padding, y0 = sprite.getY() + padding;

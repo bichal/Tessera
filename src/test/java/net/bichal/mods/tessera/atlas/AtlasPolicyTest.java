@@ -9,15 +9,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AtlasPolicyTest {
 
     @Test
-    void guiAtlasStaysUncompressed() {
-        assertFalse(AtlasPolicy.isCompressible("minecraft:textures/atlas/gui.png"));
+    void guiAtlasStaysUncompressedUnlessTheSettingIsOn() {
+        assertFalse(AtlasPolicy.isCompressible("minecraft:textures/atlas/gui.png", false));
+        assertTrue(AtlasPolicy.isCompressible("minecraft:textures/atlas/gui.png", true));
+        assertTrue(AtlasPolicy.isGuiAtlas("minecraft:textures/atlas/gui.png"));
+        assertFalse(AtlasPolicy.isGuiAtlas("minecraft:textures/atlas/blocks.png"));
     }
 
     @Test
     void worldAtlasesAreCompressed() {
-        assertTrue(AtlasPolicy.isCompressible("minecraft:textures/atlas/blocks.png"));
-        assertTrue(AtlasPolicy.isCompressible("minecraft:textures/atlas/particles.png"));
-        assertTrue(AtlasPolicy.isCompressible("minecraft:textures/atlas/chests.png"));
+        assertTrue(AtlasPolicy.isCompressible("minecraft:textures/atlas/blocks.png", false));
+        assertTrue(AtlasPolicy.isCompressible("minecraft:textures/atlas/particles.png", false));
+        assertTrue(AtlasPolicy.isCompressible("minecraft:textures/atlas/chests.png", false));
     }
 
     @Test

@@ -152,6 +152,12 @@ public abstract class TextureAtlasUploadMixin {
         if (!target.gpuSupported()) {
             return;
         }
+        if (target.isAstc() && AtlasPolicy.isGuiAtlas(atlasName)) {
+            // Its transparent texels must decode as exactly 0, which only the BC formats are checked for.
+            LOGGER.info("Atlas {}: GUI atlas kept as RGBA8888 ({} cannot keep its transparent texels exact).",
+                    atlasName, target);
+            return;
+        }
 
         // Animated atlases: compressed with every frame precoded (CompressedAnimationUploader), or
         // left RGBA8888 as vanilla uploaded them (Kerria installed, setting off, format without 4x4 blocks).

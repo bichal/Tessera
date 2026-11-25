@@ -19,11 +19,12 @@ import java.util.Collection;
  *       (frames are written per 4x4 block).</li>
  * </ul>
  *
- * <p>The GUI atlas is tiny (about a megabyte), so compressing it saves almost
- * nothing, but its sprites are drawn with blend modes that expose any texel BC7
- * does not reproduce exactly: the crosshair inverts the colour behind it using
- * the sprite's RGB, so a "transparent" texel decoded with a trace of colour
- * showed up as a grey bar beside the crosshair.
+ * <p>The GUI atlas is left alone unless the experimental {@code compressGuiAtlas} setting is on.
+ * It is small in vanilla (about a megabyte), and its sprites are drawn with blend modes that
+ * expose any texel the encoder does not reproduce exactly: the crosshair inverts the colour behind
+ * it using the sprite's RGB, so a "transparent" texel decoded with a trace of colour shows up as a
+ * grey bar beside it. With the setting on, its transparent texels are written to decode as exactly
+ * zero ({@code ExactTransparency}); ASTC cannot promise that, so there it stays RGBA8888.
  */
 public final class AtlasPolicy {
 
@@ -40,7 +41,18 @@ public final class AtlasPolicy {
 
     /** @param atlasName the atlas texture location, e.g. {@code minecraft:textures/atlas/gui.png} */
     public static boolean isCompressible(String atlasName) {
-        return !atlasName.endsWith("textures/atlas/gui.png");
+        return isCompressible(atlasName, net.bichal.mods.tessera.config.Config.get(
+                net.bichal.mods.tessera.config.Config.COMPRESS_GUI_ATLAS));
+    }
+
+    /** @param compressGui the {@code compressGuiAtlas} setting */
+    public static boolean isCompressible(String atlasName, boolean compressGui) {
+        return compressGui || !isGuiAtlas(atlasName);
+    }
+
+    /** Whether the atlas is the GUI's, whose transparent texels must decode as exactly zero. */
+    public static boolean isGuiAtlas(String atlasName) {
+        return atlasName.endsWith("textures/atlas/gui.png");
     }
 
     /** Which half of the split an atlas with these sprites belongs to. */

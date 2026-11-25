@@ -39,6 +39,9 @@ public class EsEsLanguageProvider extends LanguageProvider {
         addConfigOption("gpuCompression", "Compresión por GPU (Experimental)",
                 "EXPERIMENTAL: codifica BC7 en la GPU en vez de en la CPU. Necesita OpenGL 4.3 (no disponible en macOS). Puede verse peor, dar tirones o cerrar el juego con algunos drivers; Tessera la comprueba al arrancar y sigue en la CPU si la comprobación falla. También guarda los frames de las animaciones en la VRAM (hasta 64 MB por atlas) y los copia en la GPU en vez de subirlos en cada tick. F3 muestra cuál se está usando.");
 
+        addConfigOption("compressGuiAtlas", "Comprimir Atlas de la GUI (Experimental)",
+                "EXPERIMENTAL: comprime también el atlas de la GUI (iconos, barra rápida, punto de mira), alrededor de 1 MB en vanilla y mucho más con paquetes de recursos grandes. Los píxeles transparentes se escriben para que se decodifiquen exactamente a cero y el punto de mira quede limpio; algunos bordes de iconos pueden perder algo de detalle de color. Solo formatos BC.");
+
         // Opciones de Desduplicación
         addConfigOption("dedupSimilarityThreshold", "Umbral de Similitud",
                 "Distancia Hamming (0-64) para huellas pHash de 64 bits. Valores más bajos son más estrictos al fusionar sprites duplicados.");
