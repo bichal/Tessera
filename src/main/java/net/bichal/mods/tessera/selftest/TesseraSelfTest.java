@@ -12,6 +12,7 @@ import net.bichal.mods.tessera.compress.AstcGpuSupport;
 import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
 import net.bichal.mods.tessera.compress.Bc7GpuSupport;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
+import net.bichal.mods.tessera.compress.gpu.GpuCompression;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.texture.TextureAtlas;
@@ -279,6 +280,7 @@ public final class TesseraSelfTest {
         out.add("renderer " + GL11.glGetString(GL11.GL_RENDERER) + ", " + GL11.glGetString(GL11.GL_VERSION));
         out.add("GPU formats: BC1 " + Bc1TextureFormatSupport.isSupported() + ", BC7 " + Bc7GpuSupport.isSupported()
                 + ", ASTC " + AstcGpuSupport.isSupported());
+        out.add("GPU compression: " + GpuCompression.status().state() + " " + GpuCompression.status().detail());
         if (AtlasFormats.choose(false) == null && AtlasFormats.choose(true) == null) {
             out.add("the GL driver takes none of BC1, BC7 and ASTC");
             return false;

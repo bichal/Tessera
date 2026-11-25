@@ -7,6 +7,13 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Added
 
+- `gpuCompression` (off by default, marked experimental in its tooltip and in the log): the switch for encoding BC7
+  on the GPU. It needs compute shaders, image load/store, shader storage buffers, `glCopyImageSubData` and BC7
+  (OpenGL 4.3; never on macOS), checked on the render thread. Before a GPU encoder may touch an atlas it has to pass a
+  startup check: it encodes a fixed test image, the native decoder decodes it, and it must come back the right size,
+  above 30 dB PSNR and with no cutout texel on the wrong side of the alpha threshold. F3 shows which encoder BC7 goes
+  through, and why not the GPU when it was asked for. This build has no GPU encoder yet, so the setting reports that
+  and everything stays on the CPU.
 - Atlases with animated sprites (the block atlas) are compressed again, by default (`compressAnimatedAtlases`, on):
   `CompressedAnimationUploader`, `AnimationReader` and the `SpriteContents.upload` mixin are back. Every keyframe is
   precoded once in the background when the atlas is registered, and so is every blended step of the interpolated

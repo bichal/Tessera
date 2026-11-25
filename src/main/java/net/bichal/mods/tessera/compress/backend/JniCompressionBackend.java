@@ -63,7 +63,7 @@ final class JniCompressionBackend implements CompressionBackend {
 
     /**
      * Decodes BC7 blocks to RGBA8 with the bundled decoder. Used by the round-trip
-     * check ({@code NativeBridgeSelfTest}), not by the game.
+     * checks ({@code NativeBridgeSelfTest}, and the GPU encoder check at startup), not to render.
      *
      * @return width * height RGBA8 texels, or {@code null} if the decoder rejects the input
      */

@@ -36,6 +36,9 @@ public class EnUsLanguageProvider extends LanguageProvider {
         addConfigOption("compressAnimatedAtlases", "Compress Animated Atlases",
                 "Also compress atlases with animated textures, such as the block atlas: each frame is encoded once. Off keeps them RGBA8888. Ignored while Kerria is installed.");
 
+        addConfigOption("gpuCompression", "GPU Compression (Experimental)",
+                "EXPERIMENTAL: encodes BC7 on the GPU instead of the CPU. Needs OpenGL 4.3 (not available on macOS). It may look worse, stutter or crash on some drivers; Tessera checks it at startup and stays on the CPU if the check fails. F3 shows which one is in use.");
+
         // Deduplication Options
         addConfigOption("dedupSimilarityThreshold", "Deduplication Similarity Threshold",
                 "Hamming distance (0-64) for 64-bit pHash fingerprints. Lower values are stricter when merging duplicate sprites.");

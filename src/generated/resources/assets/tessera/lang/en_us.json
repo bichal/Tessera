@@ -27,6 +27,8 @@
   "tessera.configuration.deduplication.tooltip": "Configure perceptual hashing and near-duplicate sprite merging.",
   "tessera.configuration.disableNativeCompression": "Disable Native Compression",
   "tessera.configuration.disableNativeCompression.tooltip": "Forces vanilla RGBA atlas behavior even if BC7 native compression is supported.",
+  "tessera.configuration.gpuCompression": "GPU Compression (Experimental)",
+  "tessera.configuration.gpuCompression.tooltip": "EXPERIMENTAL: encodes BC7 on the GPU instead of the CPU. Needs OpenGL 4.3 (not available on macOS). It may look worse, stutter or crash on some drivers; Tessera checks it at startup and stays on the CPU if the check fails. F3 shows which one is in use.",
   "tessera.configuration.reset": "Reset to default",
   "tessera.configuration.resetAll": "Reset to defaults",
   "tessera.configuration.section.tessera.client.toml": "Tessera Client Config",

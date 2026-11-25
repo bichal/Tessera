@@ -76,6 +76,22 @@ public final class TesseraRuntime {
         return !(backend() instanceof SoftwareCompressionBackend);
     }
 
+    /**
+     * Decodes BC7 blocks with the native decoder, for checks (the GPU encoder's startup check), not
+     * rendering. {@code null} without the native bridge or when the decoder rejects the blocks.
+     */
+    public static java.nio.ByteBuffer decodeBc7(java.nio.ByteBuffer blocks, int width, int height) {
+        if (!isNativeActive()) {
+            return null;
+        }
+        java.nio.ByteBuffer direct = blocks;
+        if (!blocks.isDirect()) {
+            direct = java.nio.ByteBuffer.allocateDirect(blocks.remaining()).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+            direct.put(blocks.duplicate()).flip();
+        }
+        return JniCompressionBackend.decompressBc7(direct, width, height);
+    }
+
     /** Stateless pure-Java encoder; used as a per-job retry when the native backend fails. */
     public static CompressionBackend softwareBackend() {
         return SoftwareHolder.INSTANCE;

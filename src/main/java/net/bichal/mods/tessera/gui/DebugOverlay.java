@@ -1,5 +1,6 @@
 package net.bichal.mods.tessera.gui;
 
+import net.bichal.mods.tessera.compress.gpu.GpuCompression;
 import net.bichal.mods.tessera.compat.ModCompat;
 import net.bichal.mods.tessera.compress.CompressedAtlases;
 import net.bichal.mods.tessera.config.Config;
@@ -113,6 +114,7 @@ public final class DebugOverlay {
             lines.add(String.format("Animated atlases (RGBA): §7%.2f MB§r%s", animatedBytes / (1024.0 * 1024.0),
                     ModCompat.isKerriaLoaded() ? " §7(Kerria)§r" : ""));
         }
+        lines.add("BC7 encoder: " + GpuCompression.overlayLabel());
         lines.add(String.format("VRAM Budget: %d MB", budgetTargetMB));
         lines.add("GPU VRAM: " + getHardwareVramUsage());
         return lines;

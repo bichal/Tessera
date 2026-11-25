@@ -36,6 +36,9 @@ public class EsEsLanguageProvider extends LanguageProvider {
         addConfigOption("compressAnimatedAtlases", "Comprimir Atlas Animados",
                 "Comprime también los atlas con texturas animadas, como el de bloques: cada frame se codifica una vez. Desactivado los deja en RGBA8888. Se ignora si Kerria está instalado.");
 
+        addConfigOption("gpuCompression", "Compresión por GPU (Experimental)",
+                "EXPERIMENTAL: codifica BC7 en la GPU en vez de en la CPU. Necesita OpenGL 4.3 (no disponible en macOS). Puede verse peor, dar tirones o cerrar el juego con algunos drivers; Tessera la comprueba al arrancar y sigue en la CPU si la comprobación falla. F3 muestra cuál se está usando.");
+
         // Opciones de Desduplicación
         addConfigOption("dedupSimilarityThreshold", "Umbral de Similitud",
                 "Distancia Hamming (0-64) para huellas pHash de 64 bits. Valores más bajos son más estrictos al fusionar sprites duplicados.");

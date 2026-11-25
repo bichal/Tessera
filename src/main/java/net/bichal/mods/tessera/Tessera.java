@@ -6,6 +6,7 @@ import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
 import net.bichal.mods.tessera.compress.AstcGpuSupport;
 import net.bichal.mods.tessera.compress.Bc7GpuSupport;
 import net.bichal.mods.tessera.compress.backend.TesseraRuntime;
+import net.bichal.mods.tessera.compress.gpu.GpuCompression;
 import net.bichal.mods.tessera.config.Config;
 import net.bichal.mods.tessera.gui.KnownEngineBugLogFilter;
 import net.bichal.mods.tessera.selftest.TesseraSelfTest;
@@ -77,6 +78,7 @@ public final class Tessera {
         }
         LOGGER.info("GPU texture compression: BC1 {}, BC7 {}, ASTC {}",
                 Bc1TextureFormatSupport.isSupported(), bc7Supported, AstcGpuSupport.isSupported());
+        GpuCompression.refresh();
     }
 
     /**
@@ -98,8 +100,12 @@ public final class Tessera {
 
         // The change may come from a thread other than the render thread (NeoForge's config file
         // watcher), and Minecraft's resource-reload entry point asserts render-thread ownership,
-        // so it always hops through Minecraft#execute.
-        Minecraft.getInstance().execute(() -> Minecraft.getInstance().reloadResourcePacks());
+        // so it always hops through Minecraft#execute. The GPU state needs the context too, and is
+        // settled before the reload compresses anything.
+        Minecraft.getInstance().execute(() -> {
+            GpuCompression.refresh();
+            Minecraft.getInstance().reloadResourcePacks();
+        });
     }
 
     //? if neoforge {

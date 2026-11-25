@@ -27,6 +27,8 @@
   "tessera.configuration.deduplication.tooltip": "Ajustes de hashing perceptual y fusión de sprites duplicados.",
   "tessera.configuration.disableNativeCompression": "Desactivar Compresión Nativa",
   "tessera.configuration.disableNativeCompression.tooltip": "Fuerza el comportamiento RGBA vanilla aunque la compresión BC7 esté soportada por la GPU.",
+  "tessera.configuration.gpuCompression": "Compresión por GPU (Experimental)",
+  "tessera.configuration.gpuCompression.tooltip": "EXPERIMENTAL: codifica BC7 en la GPU en vez de en la CPU. Necesita OpenGL 4.3 (no disponible en macOS). Puede verse peor, dar tirones o cerrar el juego con algunos drivers; Tessera la comprueba al arrancar y sigue en la CPU si la comprobación falla. F3 muestra cuál se está usando.",
   "tessera.configuration.reset": "Restablecer valor por defecto",
   "tessera.configuration.resetAll": "Restablecer valores",
   "tessera.configuration.section.tessera.client.toml": "Configuración de Cliente de Tessera",
