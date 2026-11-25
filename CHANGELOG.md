@@ -27,6 +27,12 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   Animation frames stay on the CPU: a GPU encode holds the render thread until its result is read back. GPU-encoded
   chains are cached apart from CPU ones (tag `g`). Self-test on llvmpipe: every BC7 atlas through the GPU, none sent
   back, sprite PSNR level with the CPU encoder, no GL errors.
+- An experimental GPU frame bank for animations, with `gpuCompression` on: the compressed blocks of each frame drawn
+  are put once in VRAM pages of the atlas's own format (2048x2048, up to 64 MB per atlas), and drawing that frame
+  again is a `glCopyImageSubData` from the bank into the atlas instead of a `glCompressedTexSubImage2D` that sends the
+  blocks from the CPU every tick. A bank that fills up starts over, and one that keeps filling up turns itself off;
+  regions that are not whole 4x4 blocks are uploaded as before. F3 shows the bank's VRAM. Self-test (1.21.11 Fabric
+  and 1.21.1, setting on): every animation upload goes through the bank, frames check out, no GL errors.
 - Atlases with animated sprites (the block atlas) are compressed again, by default (`compressAnimatedAtlases`, on):
   `CompressedAnimationUploader`, `AnimationReader` and the `SpriteContents.upload` mixin are back. Every keyframe is
   precoded once in the background when the atlas is registered, and so is every blended step of the interpolated

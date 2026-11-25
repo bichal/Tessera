@@ -147,6 +147,10 @@ public final class DebugOverlay {
             lines.add(String.format("Animated atlases (RGBA): §7%.2f MB§r%s", animatedBytes / (1024.0 * 1024.0),
                     ModCompat.isKerriaLoaded() ? " §7(Kerria)§r" : ""));
         }
+        long bankBytes = net.bichal.mods.tessera.compress.CompressedAnimationUploader.frameBankBytes();
+        if (bankBytes > 0) {
+            lines.add(String.format("Animation frame bank (GPU): §e%.0f MB§r", bankBytes / (1024.0 * 1024.0)));
+        }
         lines.add("BC7 encoder: " + GpuCompression.overlayLabel());
         lines.add(String.format("VRAM Budget: %d MB", budgetTargetMB));
         lines.add("GPU VRAM: " + getHardwareVramUsage());

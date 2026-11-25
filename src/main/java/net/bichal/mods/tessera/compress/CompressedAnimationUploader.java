@@ -82,11 +82,13 @@ public final class CompressedAnimationUploader {
      * @param deepSources    copies of each animated sprite's images at those levels,
      *                       read by the mip thread (a reload may close the originals)
      * @param spritesByState 1.21.11+: the atlas's animation states and their sprites
+     * @param bank           frames kept in VRAM and copied on the GPU (experimental, with
+     *                       {@code gpuCompression}), or {@code null}
      */
     private record AtlasState(int glId, CompressionPipeline.Target target, int maxLevel, int alignedLevel,
                               Map<Integer, MipChainBuilder.MipLevel> deepLevels,
                               Map<Object, TextureAtlasSprite> spritesByState,
-                              Map<SpriteContents, PixelSource> deepSources) {
+                              Map<SpriteContents, PixelSource> deepSources, GpuFrameBank bank) {
     }
 
     /** One frame's pixels, as ABGR, at {@code (x, y)} of its region at a mip level. */
@@ -222,9 +224,14 @@ public final class CompressedAnimationUploader {
         while (maxLevel < maxUploadedLevel && deepLevels.containsKey(maxLevel + 1)) {
             maxLevel++;
         }
+        GpuFrameBank bank = Config.get(Config.GPU_COMPRESSION)
+                ? GpuFrameBank.create(atlas.location().toString(), target) : null;
         AtlasState state = new AtlasState(glId, target, maxLevel, alignedLevel, deepLevels, spritesByState,
-                deepSources(atlas, alignedLevel, maxLevel));
-        COMPRESSED_ATLASES.put(atlas, state);
+                deepSources(atlas, alignedLevel, maxLevel), bank);
+        AtlasState previous = COMPRESSED_ATLASES.put(atlas, state);
+        if (previous != null && previous.bank() != null) {
+            previous.bank().release();
+        }
         registrations++;
         precodeKeyframes(atlas, state);
         if (TesseraCompat.GPU_ANIMATION) {
@@ -240,13 +247,22 @@ public final class CompressedAnimationUploader {
      * small enough that rebuilding it lazily is cheaper than tracking ownership.
      */
     public static void unregister(TextureAtlas atlas) {
-        if (COMPRESSED_ATLASES.remove(atlas) != null) {
+        AtlasState removed = COMPRESSED_ATLASES.remove(atlas);
+        if (removed != null) {
+            if (removed.bank() != null) {
+                removed.bank().release();
+            }
             epoch++;
             prepared = null;
             KEYFRAME_CACHE.clear();
             BY_CONTENT.clear();
             BLEND_KEYS.clear();
         }
+    }
+
+    /** VRAM held by the experimental GPU frame banks (render thread). */
+    public static long frameBankBytes() {
+        return GpuFrameBank.totalBytes();
     }
 
     /** Queues background work for the render thread (any thread). */
@@ -563,11 +579,17 @@ public final class CompressedAnimationUploader {
         prepared = state;
     }
 
-    /** Uploads cached blocks over a region (a duplicate: cached buffers are shared and never moved). */
-    private static void uploadBlocks(int level, int x, int y, int w, int h, int glFormat,
+    /**
+     * Writes cached blocks over a region of the bound atlas: copied from the GPU frame bank when the
+     * atlas has one, otherwise uploaded (a duplicate: cached buffers are shared and never moved).
+     */
+    private static void uploadBlocks(AtlasState state, int level, int x, int y, int w, int h, int glFormat,
                                      ByteBuffer blocks) {
         if (TesseraSelfTest.ENABLED) {
             EncodeStats.uploads++;
+        }
+        if (state.bank() != null && state.bank().copy(state.glId(), level, x, y, w, h, blocks)) {
+            return;
         }
         GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, level, x, y, w, h, glFormat, blocks.duplicate());
     }
@@ -833,7 +855,7 @@ public final class CompressedAnimationUploader {
                     encoded[level] = blocks;
                 }
             }
-            uploadBlocks(level, x >> level, y >> level, w, h, glFormat, blocks);
+            uploadBlocks(state, level, x >> level, y >> level, w, h, glFormat, blocks);
         }
         if (cacheable && cached == null) {
             spriteCache.put(cacheKey, encoded);
@@ -1073,7 +1095,7 @@ public final class CompressedAnimationUploader {
             TesseraCompat.resetUnpackState();
             int glFormat = state.target().glFormat();
             for (DeepUpload upload : uploads) {
-                uploadBlocks(upload.level(), upload.x(), upload.y(), upload.width(), upload.height(), glFormat,
+                uploadBlocks(state, upload.level(), upload.x(), upload.y(), upload.width(), upload.height(), glFormat,
                         upload.blocks());
             }
         });
@@ -1220,6 +1242,8 @@ public final class CompressedAnimationUploader {
         public static long foundByFrame;
         /** Compressed sub-image uploads (one per region and mip level drawn). */
         public static long uploads;
+        /** Of those, copied from the GPU frame bank, and frames put in the bank (experimental). */
+        public static long bankCopies, bankFills;
         private static long bestCalls, bestNanos;
 
         private EncodeStats() {
@@ -1273,7 +1297,7 @@ public final class CompressedAnimationUploader {
             deepPatches = deepMisses = deepNanos = 0;
             drawNanos = maxDrawNanos = 0;
             foundByFrame = 0;
-            uploads = 0;
+            uploads = bankCopies = bankFills = 0;
             bestCalls = bestNanos = 0;
         }
     }

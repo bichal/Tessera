@@ -27,7 +27,7 @@ public final class Config {
         COMPRESS_ANIMATED_ATLASES = FabricConfig.bool("compression.compressAnimatedAtlases", true,
                 "Also compress atlases that hold animated textures (the block atlas): frames are encoded once and written as compressed blocks. Off keeps those atlases RGBA8888. Ignored while Kerria is installed.");
         GPU_COMPRESSION = FabricConfig.bool("compression.gpuCompression", false,
-                "EXPERIMENTAL. Encodes BC7 on the GPU (compute shaders, OpenGL 4.3; not on macOS) instead of the CPU. It may look worse or misbehave on some drivers; Tessera checks the GPU encoder at startup and stays on the CPU if it fails.");
+                "EXPERIMENTAL. Encodes BC7 on the GPU (compute shaders, OpenGL 4.3; not on macOS) instead of the CPU. It may look worse or misbehave on some drivers; Tessera checks the GPU encoder at startup and stays on the CPU if it fails. Also keeps animation frames in VRAM (up to 64 MB per atlas) and copies them on the GPU instead of uploading them every tick.");
         DEDUP_SIMILARITY_THRESHOLD = FabricConfig.integer("deduplication.dedupSimilarityThreshold", 6, 0, 64,
                 "Maximum Hamming distance, 0 to 64, between two 64-bit pHash fingerprints for sprites to count as duplicates.");
         VRAM_BUDGET_TARGET_MB = FabricConfig.integer("vramBudget.vramBudgetTargetMb", 2048, 256, 16384,
@@ -74,7 +74,8 @@ public final class Config {
                 .comment(
                         "EXPERIMENTAL. Encodes BC7 on the GPU (compute shaders, OpenGL 4.3; not on macOS) instead of",
                         "the CPU. It may look worse or misbehave on some drivers; Tessera checks the GPU encoder at",
-                        "startup and stays on the CPU if it fails."
+                        "startup and stays on the CPU if it fails. Also keeps animation frames in VRAM (up to 64 MB",
+                        "per atlas) and copies them on the GPU instead of uploading them every tick."
                 )
                 .translation("tessera.configuration.gpuCompression")
                 .define("gpuCompression", false));

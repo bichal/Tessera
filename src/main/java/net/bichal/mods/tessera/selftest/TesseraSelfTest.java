@@ -238,7 +238,9 @@ public final class TesseraSelfTest {
                 EncodeStats.keyframeMisses, EncodeStats.blendLookups, EncodeStats.foundByFrame, EncodeStats.blendMisses));
         lines.add(String.format("  smallest-level patches on the mip thread: %d, %d encoded, %.3f ms per tick",
                 EncodeStats.deepPatches(), EncodeStats.deepMisses(), EncodeStats.deepNanos() / 1e6 / window));
-        lines.add(String.format("  compressed uploads: %.1f per tick", (double) EncodeStats.uploads / window));
+        lines.add(String.format("  compressed uploads: %.1f per tick, %.1f of them copied from the GPU frame bank"
+                        + " (%d frames put in it)", (double) EncodeStats.uploads / window,
+                (double) EncodeStats.bankCopies / window, EncodeStats.bankFills));
         boolean pass;
         try {
             pass = check(lines);
