@@ -69,6 +69,17 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Changed
 
+- Animations cost the render thread about an eighth of what they did on 1.21.11+ (self-test, vanilla block atlas:
+  4.5 ms per tick down to 0.6 ms, the largest tick 9.5 ms down to 4.1 ms). Every interpolated frame used to be
+  rebuilt texel by texel and hashed each tick only to find its blocks in the content cache; now its content key is
+  remembered by frame and progress (recorded by the precode, and by the first draw of a blend the precode missed), so
+  a known blend is a map lookup. The padded-region texel mapping is worked out once per frame and level instead of
+  per texel (also cuts the background precode from 3.3 s to 2.2 s), and frames encoded on the render thread go
+  through the native encoder at preset 0 (bc7f) instead of the pure-Java one.
+- Background results (precoded frames, best-quality keyframes) reach the render thread through Celeris's lock-free
+  `AsyncResultQueue` instead of a `ConcurrentLinkedQueue`; an overflow queue keeps anything that does not fit.
+- The self-test reports everything animations cost the render thread per tick, not only the encodes, and how many
+  blends were found by frame and progress.
 - BC7 is encoded by bc7f (Basis Universal's real-time BC7 encoder, which uses the whole format) and, from
   `compressionQuality` 2 up, also by bc7enc: each 4x4 block keeps whichever decodes closer to the source. On the vanilla
   atlases the default preset is 0.15-1.5 dB PSNR above the old encoder at any of its presets, and 2.5-4 times faster

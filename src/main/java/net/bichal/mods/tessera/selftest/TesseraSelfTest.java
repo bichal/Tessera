@@ -231,9 +231,11 @@ public final class TesseraSelfTest {
                         + " by content), %.3f ms per tick (largest %.3f ms); native encodes in the background: %d, %.1f ms",
                 window, EncodeStats.calls, EncodeStats.found, EncodeStats.nanos / 1e6 / window,
                 EncodeStats.maxNanos / 1e6, EncodeStats.bestCalls(), EncodeStats.bestNanos() / 1e6));
-        lines.add(String.format("  keyframes not precoded yet: %d; blended frames: %d looked up, %d encoded;"
-                        + " smallest-level patches: %d, %d encoded",
-                EncodeStats.keyframeMisses, EncodeStats.blendLookups, EncodeStats.blendMisses,
+        lines.add(String.format("  all animation work on the render thread: %.3f ms per tick (largest call %.3f ms)",
+                EncodeStats.drawNanos / 1e6 / window, EncodeStats.maxDrawNanos / 1e6));
+        lines.add(String.format("  keyframes not precoded yet: %d; blended frames: %d looked up (%d by frame and"
+                        + " progress), %d encoded; smallest-level patches: %d, %d encoded",
+                EncodeStats.keyframeMisses, EncodeStats.blendLookups, EncodeStats.foundByFrame, EncodeStats.blendMisses,
                 EncodeStats.deepPatches, EncodeStats.deepMisses));
         boolean pass;
         try {
