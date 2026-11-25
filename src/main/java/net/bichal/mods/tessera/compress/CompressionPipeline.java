@@ -4,6 +4,7 @@ import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compress.backend.CompressionBackend;
 import net.bichal.mods.tessera.compress.backend.TesseraRuntime;
 import net.bichal.mods.tessera.compress.software.Bc1PunchThrough;
+import net.bichal.mods.tessera.compress.gpu.GpuDispatch;
 import net.bichal.mods.tessera.compress.software.TransparentTexelBleed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -128,6 +129,16 @@ public final class CompressionPipeline {
      */
     public static ByteBuffer compressBlocking(String atlasKey, ByteBuffer rgba8, int width, int height,
                                               Target target, int qualityPreset, int mipLevel) {
+        return compressBlocking(atlasKey, rgba8, width, height, target, qualityPreset, mipLevel, false);
+    }
+
+    /**
+     * @param allowGpu whether BC7 may go to the experimental GPU encoder: only for atlases, which are
+     *                 compressed while the game loads. A GPU encode holds the render thread until its
+     *                 result is read back, so animation frames re-encoded during play stay on the CPU.
+     */
+    public static ByteBuffer compressBlocking(String atlasKey, ByteBuffer rgba8, int width, int height,
+                                              Target target, int qualityPreset, int mipLevel, boolean allowGpu) {
         long requiredBytes = (long) width * height * 4L;
         if (width <= 0 || height <= 0 || rgba8.remaining() < requiredBytes) {
             LOGGER.error("Invalid RGBA input for atlas '{}': {}x{} needs {} bytes, buffer has {}",
@@ -140,7 +151,9 @@ public final class CompressionPipeline {
         CompressionBackend backend = TesseraRuntime.backend();
         ByteBuffer compressed;
         try {
-            compressed = encode(backend, target, input, width, height, qualityPreset, mipLevel == 0);
+            // BC7 on the GPU when that experimental path is on and working; null means the CPU.
+            ByteBuffer gpu = allowGpu && target == Target.BC7 ? GpuDispatch.encodeBc7(input, width, height, qualityPreset) : null;
+            compressed = gpu != null ? gpu : encode(backend, target, input, width, height, qualityPreset, mipLevel == 0);
         } catch (Throwable t) {
             LOGGER.warn("Backend {} threw while compressing atlas '{}' -- retrying with software encoder",
                     backend.name(), atlasKey, t);

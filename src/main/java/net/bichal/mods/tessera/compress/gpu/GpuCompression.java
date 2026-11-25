@@ -38,8 +38,8 @@ public final class GpuCompression {
 
     /** The GPU encoder of this build. */
     private static final GpuBc7Encoder ENCODER = new ComputeBc7Encoder();
-    /** Whether atlas compression sends BC7 to the GPU encoder; until it does, a passed check is {@link State#CHECKED}. */
-    private static final boolean ROUTED = false;
+    /** Whether atlas compression sends BC7 to the GPU encoder (see {@link GpuDispatch}); if not, a passed check is {@link State#CHECKED}. */
+    private static final boolean ROUTED = true;
 
     private static volatile Status status = new Status(State.OFF, "");
     /** Outcome of the startup check, run at most once per session. */
@@ -56,6 +56,15 @@ public final class GpuCompression {
     /** The encoder to use, or {@code null} to encode on the CPU. */
     public static GpuBc7Encoder activeEncoder() {
         return status.state() == State.ACTIVE ? ENCODER : null;
+    }
+
+    /** Turns the GPU path off for the rest of the session (any thread): atlases go back to the CPU. */
+    public static void disable(String reason) {
+        Status previous = status;
+        if (previous.state() == State.ACTIVE) {
+            status = new Status(State.FAILED, reason);
+            LOGGER.warn("GPU compression turned off for this session, atlases are encoded on the CPU: {}", reason);
+        }
     }
 
     /** Render thread only: re-evaluates the state after startup or a settings change and logs it. */
@@ -90,6 +99,9 @@ public final class GpuCompression {
         }
         if (!TesseraRuntime.isNativeActive()) {
             return new Status(State.UNVERIFIABLE, "the native bridge (needed to check the GPU encoder) did not load");
+        }
+        if (status.state() == State.FAILED && checkResult != null && checkResult.passed()) {
+            return status; // turned off this session after a failure while encoding
         }
         if (checkResult == null) {
             checkResult = GpuEncoderCheck.run(ENCODER, TesseraRuntime::decodeBc7);

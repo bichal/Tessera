@@ -5,6 +5,7 @@ import net.bichal.mods.tessera.compat.TesseraCompat;
 import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.bichal.mods.tessera.compress.backend.TesseraRuntime;
+import net.bichal.mods.tessera.compress.gpu.GpuCompression;
 import net.bichal.mods.tessera.config.Config;
 import net.bichal.mods.tessera.gui.DebugOverlay;
 import net.bichal.mods.tessera.vram.VramBudgetEngine;
@@ -211,7 +212,7 @@ public final class AtlasCompressionDriver {
      *                (kept apart, so it is never served for an atlas that format would take)
      */
     private static String chainKey(Fingerprint fingerprint, int quality, boolean refused) {
-        return fingerprint.digest() + "-chain-q" + quality + (TesseraRuntime.isNativeActive() ? "n" : "s") + CACHE_VERSION
+        return fingerprint.digest() + "-chain-q" + quality + backendTag() + CACHE_VERSION
                 + (refused ? "-r" : "");
     }
 
@@ -350,8 +351,7 @@ public final class AtlasCompressionDriver {
         String key = atlasLocation.toString();
         AtlasCache cache = cache();
         AtlasCache.CompressedFormat format = target.cacheFormat();
-        // Backend tag: software output must not be served forever once native becomes available.
-        String backendTag = TesseraRuntime.isNativeActive() ? "n" : "s";
+        String backendTag = backendTag();
         int cacheHits = 0;
 
         for (int level = 0; level < mipLevels.size(); level++) {
@@ -367,7 +367,7 @@ public final class AtlasCompressionDriver {
             if (blocks != null) {
                 cacheHits++;
             } else {
-                blocks = CompressionPipeline.compressBlocking(key, mipLevel.rgba8(), width, height, target, quality, level);
+                blocks = CompressionPipeline.compressBlocking(key, mipLevel.rgba8(), width, height, target, quality, level, true);
                 if (blocks == null) {
                     // Keep the levels already produced; upload() caps MAX_LEVEL accordingly.
                     break;
@@ -639,6 +639,14 @@ public final class AtlasCompressionDriver {
     }
 
     /** Bump whenever encoder output for identical input changes (new presets, encoder upgrade). */
+    /**
+     * Which encoder a cache entry came from: software output must not be served forever once native
+     * becomes available, and GPU output (experimental) is kept apart from the CPU's both ways.
+     */
+    private static String backendTag() {
+        return GpuCompression.activeEncoder() != null ? "g" : TesseraRuntime.isNativeActive() ? "n" : "s";
+    }
+
     private static final String CACHE_VERSION = "v3"; // v2: alpha bleeding before encode; v3: bc7f + bc7enc best-of BC7
 
     private static ByteBuffer readCached(AtlasCache cache, String cacheKey, AtlasCache.CompressedFormat format,

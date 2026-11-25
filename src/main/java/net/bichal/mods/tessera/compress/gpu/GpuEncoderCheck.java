@@ -84,15 +84,20 @@ public final class GpuEncoderCheck {
 
     /** Gradients in the top half, noisy 16x16 tiles with fully transparent holes in the bottom half. */
     static ByteBuffer testImage() {
-        ByteBuffer buf = ByteBuffer.allocateDirect(WIDTH * HEIGHT * 4).order(ByteOrder.LITTLE_ENDIAN);
+        return testImageOf(WIDTH, HEIGHT);
+    }
+
+    /** {@link #testImage()} at another size. */
+    static ByteBuffer testImageOf(int width, int height) {
+        ByteBuffer buf = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.LITTLE_ENDIAN);
         long seed = 7;
-        for (int y = 0; y < HEIGHT; y++) {
-            for (int x = 0; x < WIDTH; x++) {
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
                 seed = seed * 6364136223846793005L + 1442695040888963407L;
                 int noise = (int) (seed >>> 61);
-                if (y < HEIGHT / 2) {
-                    buf.put((byte) (x * 255 / (WIDTH - 1)));
-                    buf.put((byte) (y * 255 / (HEIGHT / 2 - 1)));
+                if (y < height / 2) {
+                    buf.put((byte) (x * 255 / (width - 1)));
+                    buf.put((byte) (y * 255 / (height / 2 - 1)));
                     buf.put((byte) ((x * 3 + y * 5) & 0xFF));
                     buf.put((byte) 0xFF);
                 } else {

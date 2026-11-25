@@ -282,7 +282,9 @@ public final class TesseraSelfTest {
         out.add("renderer " + GL11.glGetString(GL11.GL_RENDERER) + ", " + GL11.glGetString(GL11.GL_VERSION));
         out.add("GPU formats: BC1 " + Bc1TextureFormatSupport.isSupported() + ", BC7 " + Bc7GpuSupport.isSupported()
                 + ", ASTC " + AstcGpuSupport.isSupported());
-        out.add("GPU compression: " + GpuCompression.status().state() + " " + GpuCompression.status().detail());
+        out.add("GPU compression: " + GpuCompression.status().state() + " " + GpuCompression.status().detail()
+                + "; images encoded on the GPU: " + net.bichal.mods.tessera.compress.gpu.GpuDispatch.encoded()
+                + ", sent back to the CPU by the spot check: " + net.bichal.mods.tessera.compress.gpu.GpuDispatch.rejected());
         if (AtlasFormats.choose(false) == null && AtlasFormats.choose(true) == null) {
             out.add("the GL driver takes none of BC1, BC7 and ASTC");
             return false;

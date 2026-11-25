@@ -19,7 +19,14 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   threshold, and opaque texels are steered to stay at 255. On the vanilla atlases it is within 0.2 dB of the CPU
   encoder's default preset (above it on items and particles). Texels and blocks go through shader storage buffers,
   the program and buffer bindings are restored, and large images are split into dispatches of 65536 blocks. It runs
-  in the startup check; atlases are not routed to it yet, so F3 reports "GPU check passed, not used yet".
+  in the startup check, and with `gpuCompression` on and the check passed it encodes the BC7 atlases (every mip
+  level) while the game loads. A compression thread hands the encode to the render thread through Minecraft's task
+  queue and waits (the render thread never waits on compression, so this cannot deadlock); each result is
+  spot-checked on the CPU (256 blocks decoded natively, no cutout texel flipped, above 24 dB) before it is used, and
+  a failed check sends that image to the CPU. An exception or a 30 s timeout turns the GPU path off for the session.
+  Animation frames stay on the CPU: a GPU encode holds the render thread until its result is read back. GPU-encoded
+  chains are cached apart from CPU ones (tag `g`). Self-test on llvmpipe: every BC7 atlas through the GPU, none sent
+  back, sprite PSNR level with the CPU encoder, no GL errors.
 - Atlases with animated sprites (the block atlas) are compressed again, by default (`compressAnimatedAtlases`, on):
   `CompressedAnimationUploader`, `AnimationReader` and the `SpriteContents.upload` mixin are back. Every keyframe is
   precoded once in the background when the atlas is registered, and so is every blended step of the interpolated
