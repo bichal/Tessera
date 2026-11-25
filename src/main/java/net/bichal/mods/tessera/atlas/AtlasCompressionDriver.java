@@ -15,10 +15,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -119,6 +118,8 @@ public final class AtlasCompressionDriver {
         ParallelWork.forEach(groups, group -> {
             int texelAnd = -1;
             int[] row = new int[0];
+            // Rows go in with one bulk copy each: no per-texel stores, which are slow before the JIT compiles them.
+            IntBuffer atlasInts = ByteBuffer.wrap(atlas).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer();
             for (int i = chunks[group], end = chunks[group + 1]; i < end; i++) {
                 TextureAtlasSprite sprite = sprites[i];
                 int padding = TesseraCompat.padding(sprite);
@@ -150,10 +151,7 @@ public final class AtlasCompressionDriver {
                             texelAnd &= row[x];
                         }
                     }
-                    int at = ((originY + y) * atlasWidth + originX) * 4;
-                    for (int x = 0; x < width; x++, at += 4) {
-                        INT_LE.set(atlas, at, row[x]);
-                    }
+                    atlasInts.put((originY + y) * atlasWidth + originX, row, 0, width);
                 }
                 fingerprints[i] = SpriteFamilyAnalyzer.fingerprint(
                         atlas, (originY * atlasWidth + originX) * 4, width, height, atlasWidth);
@@ -174,8 +172,6 @@ public final class AtlasCompressionDriver {
 
         return new AssembledAtlas(ByteBuffer.wrap(atlas), opaque);
     }
-
-    private static final VarHandle INT_LE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
 
     /**
      * What identifies an atlas for the whole-chain cache: a digest of its layout and every
@@ -210,38 +206,49 @@ public final class AtlasCompressionDriver {
         ParallelWork.forEach(chunks.length - 1, group -> {
             MessageDigest spriteDigest = TesseraHasher.newDigest();
             byte[] row = new byte[0];
+            IntBuffer rowInts = null;
             int[] texels = new int[0];
             ByteBuffer place = ByteBuffer.allocate(Integer.BYTES * 4).order(ByteOrder.LITTLE_ENDIAN);
             for (int i = chunks[group], end = chunks[group + 1]; i < end; i++) {
                 TextureAtlasSprite sprite = sprites[i];
                 int padding = TesseraCompat.padding(sprite);
-                int width = sprite.contents().width() + 2 * padding;
+                int contentWidth = sprite.contents().width();
+                int width = contentWidth + 2 * padding;
                 int height = sprite.contents().height() + 2 * padding;
-                int maxX = sprite.contents().width() - 1;
                 int maxY = sprite.contents().height() - 1;
                 place.clear();
                 place.putInt(sprite.getX()).putInt(sprite.getY()).putInt(width).putInt(height);
                 spriteDigest.update(place.array());
                 if (row.length < width * 4) {
                     row = new byte[width * 4];
+                    rowInts = ByteBuffer.wrap(row).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer();
                     texels = new int[width];
                 }
-                AtlasFormats.Alpha alpha = AtlasFormats.Alpha.OPAQUE;
+                // Alpha over the content: the AND of every alpha, and whether any is neither 0 nor 255.
+                int alphaAnd = 0xFF;
+                int blended = 0;
                 int readY = -1;
                 for (int y = 0; y < height; y++) {
                     int sy = Math.max(0, Math.min(maxY, y - padding));
                     if (sy != readY) {
                         readY = sy;
                         TesseraCompat.spriteRow(sprite, sy, texels);
-                        for (int x = 0; x <= maxX; x++) {
-                            alpha = alpha.with(texels[x] >>> 24);
+                        for (int x = 0; x < contentWidth; x++) {
+                            int a = texels[x] >>> 24;
+                            alphaAnd &= a;
+                            blended |= (a + 1) & 0xFE;
                         }
-                        for (int x = 0, at = 0; x < width; x++, at += 4) {
-                            INT_LE.set(row, at, texels[Math.max(0, Math.min(maxX, x - padding))]);
-                        }
+                        // The padded row, edge texels repeated, written in one bulk copy (no per-texel stores:
+                        // this runs once per reload, mostly before the JIT has compiled it).
+                        System.arraycopy(texels, 0, texels, padding, contentWidth);
+                        java.util.Arrays.fill(texels, 0, padding, texels[padding]);
+                        java.util.Arrays.fill(texels, padding + contentWidth, width, texels[padding + contentWidth - 1]);
+                        rowInts.put(0, texels, 0, width);
                     }
                     spriteDigest.update(row, 0, width * 4);
                 }
+                AtlasFormats.Alpha alpha = blended != 0 ? AtlasFormats.Alpha.BLENDED
+                        : alphaAnd == 0xFF ? AtlasFormats.Alpha.OPAQUE : AtlasFormats.Alpha.BINARY;
                 spriteDigests[i] = spriteDigest.digest();
                 alphas[i] = alpha;
             }

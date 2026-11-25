@@ -92,6 +92,9 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Changed
 
+- Atlas fingerprinting and assembly write each padded sprite row with one bulk copy instead of a store per texel, and
+  fold the row's alpha with two integer ops per texel. That code runs once per reload, mostly before the JIT compiles
+  it, where the per-texel stores took 8 s of worker time over one reload in a profile. Output is unchanged.
 - Atlas fingerprinting and assembly split sprites into parallel chunks by texels as well as by count: a chunk closes
   at 16 sprites or 128x128 texels, so atlases of a few large sprites, which were one chunk done by the calling thread
   alone, spread over the workers too. Fingerprints and cache keys are unchanged.
