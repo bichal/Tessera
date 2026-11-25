@@ -100,8 +100,13 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 - The smallest mip levels of animated sprites (those past the last level where sprites own whole 4x4 blocks) are
   patched, encoded and cached on a background thread ("Tessera animation mips") and handed back as finished uploads,
   so the render thread no longer encodes any animation frame (self-test, vanilla block atlas: about 500 encodes per
-  200 ticks down to none). Those levels follow a tick behind, which only shows at a distance. The self-test reports
-  that thread's patches, encodes and time per tick.
+  200 ticks down to none). Those levels follow a few ticks behind, which only shows at a distance. The self-test
+  reports that thread's patches, encodes and time per tick.
+- Those smallest levels are sent to the mip thread every 4 ticks, one frame per sprite (the latest), instead of every
+  tick; the thread keeps each level's compressed blocks, writes the patched rectangles into them and the render
+  thread uploads, per level, the band of block rows that changed: one call where there were dozens of small uploads
+  or bank copies (self-test, vanilla block atlas: 165 compressed writes per tick down to 125, half the patches). The
+  self-test reads those levels back and checks them against their copies.
 - BC7 is encoded by bc7f (Basis Universal's real-time BC7 encoder, which uses the whole format) and, from
   `compressionQuality` 2 up, also by bc7enc: each 4x4 block keeps whichever decodes closer to the source. On the vanilla
   atlases the default preset is 0.15-1.5 dB PSNR above the old encoder at any of its presets, and 2.5-4 times faster

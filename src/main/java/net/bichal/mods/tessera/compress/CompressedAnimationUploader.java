@@ -84,11 +84,13 @@ public final class CompressedAnimationUploader {
      * @param spritesByState 1.21.11+: the atlas's animation states and their sprites
      * @param bank           frames kept in VRAM and copied on the GPU (experimental, with
      *                       {@code gpuCompression}), or {@code null}
+     * @param deep           the smallest levels' pending frames and compressed blocks
      */
     private record AtlasState(int glId, CompressionPipeline.Target target, int maxLevel, int alignedLevel,
                               Map<Integer, MipChainBuilder.MipLevel> deepLevels,
                               Map<Object, TextureAtlasSprite> spritesByState,
-                              Map<SpriteContents, PixelSource> deepSources, GpuFrameBank bank) {
+                              Map<SpriteContents, PixelSource> deepSources, GpuFrameBank bank,
+                              DeepBatch deep) {
     }
 
     /** One frame's pixels, as ABGR, at {@code (x, y)} of its region at a mip level. */
@@ -124,8 +126,21 @@ public final class CompressedAnimationUploader {
         thread.setPriority(Thread.NORM_PRIORITY - 1);
         return thread;
     });
-    /** Frames waiting for their smallest levels, sent to the mip thread once per tick; render thread only. */
-    private static final List<DeepRequest> DEEP_REQUESTS = new ArrayList<>();
+    /**
+     * Ticks between sends of the smallest levels' frames to the mip thread: waking it costs the
+     * render thread a system call, and those levels are only seen from afar.
+     */
+    private static final int DEEP_BATCH_TICKS = 4;
+
+    /** The smallest levels of one atlas: frames waiting to be patched, and the levels as the GPU has them. */
+    private static final class DeepBatch {
+        /** The latest frame of each sprite region since the last send; render thread only. */
+        final Map<Long, DeepRequest> waiting = new LinkedHashMap<>();
+        /** Ticks with frames waiting since the last send; render thread only. */
+        int ticks;
+        /** Each smallest level's compressed blocks, built on first use; mip thread only. */
+        final Map<Integer, ByteBuffer> blocks = new HashMap<>();
+    }
     /** Blocks by rectangle content, mip thread only (least recently used out first). */
     private static final Map<Long, ByteBuffer> DEEP_BY_CONTENT = new LinkedHashMap<>(256, 0.75f, true) {
         @Override
@@ -227,7 +242,7 @@ public final class CompressedAnimationUploader {
         GpuFrameBank bank = Config.get(Config.GPU_COMPRESSION)
                 ? GpuFrameBank.create(atlas.location().toString(), target) : null;
         AtlasState state = new AtlasState(glId, target, maxLevel, alignedLevel, deepLevels, spritesByState,
-                deepSources(atlas, alignedLevel, maxLevel), bank);
+                deepSources(atlas, alignedLevel, maxLevel), bank, new DeepBatch());
         AtlasState previous = COMPRESSED_ATLASES.put(atlas, state);
         if (previous != null && previous.bank() != null) {
             previous.bank().release();
@@ -258,6 +273,24 @@ public final class CompressedAnimationUploader {
             BY_CONTENT.clear();
             BLEND_KEYS.clear();
         }
+    }
+
+    /**
+     * Self-test: the RGBA copies of the smallest levels of {@code atlas} (levels past the aligned
+     * ones), which the mip thread keeps patching; empty if it has none.
+     */
+    public static Map<Integer, MipChainBuilder.MipLevel> deepLevelCopies(TextureAtlas atlas) {
+        AtlasState state = COMPRESSED_ATLASES.get(atlas);
+        Map<Integer, MipChainBuilder.MipLevel> copies = new java.util.TreeMap<>();
+        if (state != null) {
+            for (int level = state.alignedLevel() + 1; level <= state.maxLevel(); level++) {
+                MipChainBuilder.MipLevel copy = state.deepLevels().get(level);
+                if (copy != null) {
+                    copies.put(level, copy);
+                }
+            }
+        }
+        return copies;
     }
 
     /** VRAM held by the experimental GPU frame banks (render thread). */
@@ -808,7 +841,8 @@ public final class CompressedAnimationUploader {
                 // The smallest levels, where the sprite shares 4x4 blocks with its neighbours, follow
                 // keyframes only (a blended step there is a couple of texels), patched on the mip thread.
                 if (updateDeep) {
-                    DEEP_REQUESTS.add(new DeepRequest(owner, deepFrame, x, y, width, height, frameLevels));
+                    state.deep().waiting.put(((long) x << 32) | (y & 0xFFFFFFFFL),
+                            new DeepRequest(owner, deepFrame, x, y, width, height, frameLevels));
                 }
                 break; // every level from here on is one of them
             }
@@ -1034,12 +1068,15 @@ public final class CompressedAnimationUploader {
     }
 
     /** Sends this tick's smallest-level patches to the mip thread (render thread). */
+    /** Sends the waiting frames to the mip thread every {@link #DEEP_BATCH_TICKS} ticks (render thread). */
     private static void flushDeepRequests(AtlasState state) {
-        if (DEEP_REQUESTS.isEmpty()) {
+        DeepBatch batch = state.deep();
+        if (batch.waiting.isEmpty() || ++batch.ticks < DEEP_BATCH_TICKS) {
             return;
         }
-        List<DeepRequest> requests = List.copyOf(DEEP_REQUESTS);
-        DEEP_REQUESTS.clear();
+        batch.ticks = 0;
+        List<DeepRequest> requests = List.copyOf(batch.waiting.values());
+        batch.waiting.clear();
         try {
             MIPS.execute(() -> patchDeepLevels(state, requests));
         } catch (RejectedExecutionException ignored) {
@@ -1050,11 +1087,13 @@ public final class CompressedAnimationUploader {
     /**
      * Mip thread: writes each frame into the retained RGBA copies of the smallest levels, re-encodes
      * the block-aligned rectangles covering it (neighbouring pixels come from the copy, so they are
-     * preserved) and hands the blocks to the render thread, which uploads them before its next draw.
+     * preserved) and writes them into that level's compressed copy. The render thread then uploads
+     * the band of block rows each level changed in, one call per level, before its next draw.
      */
     private static void patchDeepLevels(AtlasState state, List<DeepRequest> requests) {
         long start = System.nanoTime();
         List<DeepUpload> uploads = new ArrayList<>();
+        Map<Integer, int[]> dirtyRows = new HashMap<>();
         int quality = Config.get(Config.COMPRESSION_QUALITY);
         int patches = 0;
         int[] encodes = {0};
@@ -1072,10 +1111,24 @@ public final class CompressedAnimationUploader {
                     if (w < 1 || h < 1) {
                         break;
                     }
-                    uploads.add(patchDeepLevel(state, level, frame, request.x() >> level, request.y() >> level,
-                            w, h, quality, encodes));
+                    DeepUpload rect = patchDeepLevel(state, level, frame, request.x() >> level,
+                            request.y() >> level, w, h, quality, encodes);
+                    boolean fresh = !state.deep().blocks.containsKey(level);
+                    if (!writeIntoLevel(state, rect, quality)) {
+                        uploads.add(rect); // no copy of this level: the rectangle on its own
+                    } else {
+                        int[] rows = dirtyRows.computeIfAbsent(level, l -> new int[]{Integer.MAX_VALUE, 0});
+                        // A level just encoded whole goes up whole, so the GPU matches the copy.
+                        rows[0] = fresh ? 0 : Math.min(rows[0], rect.y() >> 2);
+                        rows[1] = Math.max(rows[1], fresh
+                                ? (state.deepLevels().get(level).height() + 3) >> 2
+                                : (rect.y() + rect.height() + 3) >> 2);
+                    }
                     patches++;
                 }
+            }
+            for (Map.Entry<Integer, int[]> dirty : dirtyRows.entrySet()) {
+                uploads.add(levelBand(state, dirty.getKey(), dirty.getValue()[0], dirty.getValue()[1]));
             }
         } catch (RuntimeException e) {
             LOGGER.warn("Patching the smallest mip levels of animated sprites failed", e);
@@ -1095,10 +1148,54 @@ public final class CompressedAnimationUploader {
             TesseraCompat.resetUnpackState();
             int glFormat = state.target().glFormat();
             for (DeepUpload upload : uploads) {
-                uploadBlocks(state, upload.level(), upload.x(), upload.y(), upload.width(), upload.height(), glFormat,
-                        upload.blocks());
+                // Not through the frame bank: these bands change with every send.
+                if (TesseraSelfTest.ENABLED) {
+                    EncodeStats.uploads++;
+                }
+                GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, upload.level(), upload.x(), upload.y(),
+                        upload.width(), upload.height(), glFormat, upload.blocks().duplicate());
             }
         });
+    }
+
+    /**
+     * Mip thread: copies a patched rectangle's blocks into its level's compressed copy, encoding the
+     * whole level from its RGBA copy the first time. {@code false} if that encode failed.
+     */
+    private static boolean writeIntoLevel(AtlasState state, DeepUpload rect, int quality) {
+        MipChainBuilder.MipLevel copy = state.deepLevels().get(rect.level());
+        int bytesPerBlock = state.target().bytesPerBlock();
+        int levelBlocksWide = (copy.width() + 3) >> 2;
+        ByteBuffer levelBlocks = state.deep().blocks.get(rect.level());
+        if (levelBlocks == null) {
+            ByteBuffer rgba = ByteBuffer.allocateDirect(copy.width() * copy.height() * 4).order(ByteOrder.LITTLE_ENDIAN);
+            rgba.put(0, copy.rgba8(), 0, rgba.capacity());
+            levelBlocks = encodeOffThread(rgba, copy.width(), copy.height(), state.target(), quality);
+            if (levelBlocks.remaining() != levelBlocksWide * ((copy.height() + 3) >> 2) * bytesPerBlock) {
+                return false;
+            }
+            state.deep().blocks.put(rect.level(), levelBlocks);
+            return true; // encoded from the copy, which already holds this frame
+        }
+        int rectBlocksWide = (rect.width() + 3) >> 2;
+        int rectBlocksHigh = (rect.height() + 3) >> 2;
+        int rowBytes = rectBlocksWide * bytesPerBlock;
+        ByteBuffer blocks = rect.blocks();
+        for (int row = 0; row < rectBlocksHigh; row++) {
+            int dst = (((rect.y() >> 2) + row) * levelBlocksWide + (rect.x() >> 2)) * bytesPerBlock;
+            levelBlocks.put(dst, blocks, blocks.position() + row * rowBytes, rowBytes);
+        }
+        return true;
+    }
+
+    /** Mip thread: block rows {@code [firstRow, endRow)} of a level's compressed copy, across its whole width. */
+    private static DeepUpload levelBand(AtlasState state, int level, int firstRow, int endRow) {
+        MipChainBuilder.MipLevel copy = state.deepLevels().get(level);
+        int rowBytes = ((copy.width() + 3) >> 2) * state.target().bytesPerBlock();
+        ByteBuffer band = ByteBuffer.allocateDirect((endRow - firstRow) * rowBytes);
+        band.put(0, state.deep().blocks.get(level), firstRow * rowBytes, band.capacity());
+        int y = firstRow << 2;
+        return new DeepUpload(level, 0, y, copy.width(), Math.min(copy.height(), endRow << 2) - y, band);
     }
 
     /** Mip thread: one level of one frame, see {@link #patchDeepLevels}; counts new encodes in {@code encodes[0]}. */

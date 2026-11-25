@@ -64,7 +64,7 @@ public final class TesseraSelfTest {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Tessera/SelfTest");
     private static final int SETTLE_TICKS = 200, GIVE_UP_TICKS = 6000, ANIMATION_TICKS = 60;
-    private static final double MIN_STATIC_PSNR = 28.0, MIN_FRAME_PSNR = 20.0;
+    private static final double MIN_STATIC_PSNR = 28.0, MIN_FRAME_PSNR = 20.0, MIN_DEEP_PSNR = 20.0;
     // BC1 stores 4 bits per texel (BC7: 8): detailed opaque atlases such as paintings land near 25 dB.
     private static final double MIN_STATIC_PSNR_BC1 = 24.0;
     private static final int GL_COMPRESSED_RGB_S3TC_DXT1 = 0x83F0, GL_COMPRESSED_RGBA_S3TC_DXT1 = 0x83F1;
@@ -392,6 +392,7 @@ public final class TesseraSelfTest {
             }
             if (!animated.isEmpty()) {
                 ok &= checkAnimations(name, atlas, glId, width, height, pixels, animated, out);
+                ok &= checkDeepLevels(name, atlas, out);
             }
         } finally {
             MemoryUtil.memFree(pixels);
@@ -483,7 +484,47 @@ public final class TesseraSelfTest {
     }
 
     /** Level 0 of the bound texture as RGBA8, decoded by the driver. */
+    /**
+     * The smallest levels (patched on the mip thread and uploaded in bands) against their RGBA copies:
+     * a band written at the wrong place or with the wrong block layout would decode as garbage. The
+     * copies run up to a few ticks ahead of the GPU, so animated texels may differ a little.
+     */
+    private static boolean checkDeepLevels(String name, TextureAtlas atlas, List<String> out) {
+        boolean ok = true;
+        TesseraCompat.bindTexture(TesseraCompat.glId(atlas));
+        for (var entry : net.bichal.mods.tessera.compress.CompressedAnimationUploader.deepLevelCopies(atlas).entrySet()) {
+            int level = entry.getKey();
+            var copy = entry.getValue();
+            ByteBuffer decoded = readLevel(level, copy.width(), copy.height());
+            try {
+                ByteBuffer expected = copy.rgba8();
+                Error error = new Error();
+                for (int i = 0; i < copy.width() * copy.height(); i++) {
+                    if ((expected.get(i * 4 + 3) & 0xFF) == 0) {
+                        continue; // transparent: its colour is free
+                    }
+                    for (int c = 0; c < 4; c++) {
+                        int d = (decoded.get(i * 4 + c) & 0xFF) - (expected.get(i * 4 + c) & 0xFF);
+                        error.sum += (long) d * d;
+                    }
+                    error.count++;
+                }
+                boolean levelOk = error.psnr() >= MIN_DEEP_PSNR;
+                out.add(String.format("  %s level %d (patched on the mip thread): PSNR %.1f dB against its copy%s",
+                        name, level, error.psnr(), levelOk ? "" : " (below " + MIN_DEEP_PSNR + ")"));
+                ok &= levelOk;
+            } finally {
+                MemoryUtil.memFree(decoded);
+            }
+        }
+        return ok;
+    }
+
     private static ByteBuffer readLevel0(int width, int height) {
+        return readLevel(0, width, height);
+    }
+
+    private static ByteBuffer readLevel(int level, int width, int height) {
         ByteBuffer buffer = MemoryUtil.memAlloc(width * height * 4).order(ByteOrder.LITTLE_ENDIAN);
         int packBuffer = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
         GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
@@ -491,7 +532,7 @@ public final class TesseraSelfTest {
         GL11.glPixelStorei(GL11.GL_PACK_ROW_LENGTH, 0);
         GL11.glPixelStorei(GL11.GL_PACK_SKIP_PIXELS, 0);
         GL11.glPixelStorei(GL11.GL_PACK_SKIP_ROWS, 0);
-        GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, buffer);
+        GL11.glGetTexImage(GL11.GL_TEXTURE_2D, level, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, buffer);
         GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, packBuffer);
         return buffer;
     }
