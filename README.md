@@ -53,6 +53,7 @@ the developer guide.
 | Artwork, branding and documentation | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), see [`LICENSE-CC`](./LICENSE-CC) |
 | bc7enc_rdo (bundled) | [MIT OR Unlicense](https://github.com/richgel999/bc7enc_rdo), see [`NOTICE`](./NOTICE) |
 | ASTC Encoder (astcenc) (bundled) | [Apache-2.0](https://github.com/ARM-software/astc-encoder), see [`NOTICE`](./NOTICE) |
+| Basis Universal (bc7f encoder) (bundled) | [Apache-2.0](https://github.com/BinomialLLC/basis_universal), see [`NOTICE`](./NOTICE) |
 
 **Source code:** you may study, modify and redistribute it under the AGPL; if you run a modified version as a network service, its source must be available to that service's users.
 

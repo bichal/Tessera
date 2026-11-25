@@ -20,6 +20,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *   <li>a deterministic image survives encode and decode: the output size is
  *       exactly the block count, and the decoded image stays close to the source
  *       (PSNR). The size is not a multiple of 4, so partial edge blocks are cropped.</li>
+ *   <li>every BC7 preset on an image large enough to be split over threads, with cutout texels:
+ *       PSNR and cutout coverage survive, and two runs give the same blocks;</li>
  *   <li>the same for ASTC at 4x4 and 6x6, decoded by astc-encoder's own decoder (not Tessera's code),
  *       with a translucent image too.</li>
  * </ol>
@@ -55,6 +57,47 @@ class NativeBridgeSelfTest {
 
         double psnr = psnr(source, decoded);
         assertTrue(psnr >= MIN_PSNR_DB, "round-trip PSNR " + psnr + " dB, expected at least " + MIN_PSNR_DB);
+    }
+
+    @Test
+    void everyBc7PresetKeepsCutouts() {
+        assumeNativeStaged();
+        int width = 258, height = 130; // 2145 blocks, above the native threading threshold; partial edges
+        ByteBuffer source = cutoutPattern(width, height);
+        byte[] first = null;
+        for (int preset = 0; preset <= 7; preset++) {
+            ByteBuffer bc7 = new JniCompressionBackend().compressBc7(source, width, height, preset);
+            assertNotNull(bc7, "preset " + preset + " rejected the input");
+            ByteBuffer decoded = JniCompressionBackend.decompressBc7(bc7, width, height);
+            assertNotNull(decoded, "preset " + preset + " produced blocks the decoder rejects");
+            double psnr = psnr(source, decoded);
+            int flipped = 0, opaqueChanged = 0;
+            for (int i = 3; i < width * height * 4; i += 4) {
+                int a = source.get(i) & 0xFF, b = decoded.get(i) & 0xFF;
+                if ((a >= 26) != (b >= 26)) {
+                    flipped++;
+                }
+                if (a == 255 && b != 255) {
+                    opaqueChanged++;
+                }
+            }
+            System.out.printf("[bc7] preset %d: PSNR %.2f dB, cutout flips %d, opaque alpha changed %d%n",
+                    preset, psnr, flipped, opaqueChanged);
+            assertTrue(psnr >= MIN_PSNR_DB, "preset " + preset + " PSNR " + psnr);
+            assertEquals(0, flipped, "preset " + preset + ": texels that changed side of the cutout threshold");
+            if (preset == 0) {
+                first = new byte[bc7.remaining()];
+                bc7.duplicate().get(first);
+                // Same input again: the threaded split must give byte-identical blocks.
+                ByteBuffer again = new JniCompressionBackend().compressBc7(source, width, height, 0);
+                byte[] second = new byte[again.remaining()];
+                again.duplicate().get(second);
+                assertTrue(java.util.Arrays.equals(first, second), "BC7 output differs between two runs");
+            }
+        }
+        ByteBuffer bc1 = new JniCompressionBackend().compressBc1(gradient(width, height), width, height, QUALITY);
+        assertNotNull(bc1, "BC1 rejected the input");
+        assertEquals(((width + 3) / 4) * ((height + 3) / 4) * 8, bc1.remaining(), "BC1 is 8 bytes per block");
     }
 
     @Test
@@ -143,6 +186,25 @@ class NativeBridgeSelfTest {
                 buf.put((byte) (y * 255 / (height - 1)));
                 buf.put((byte) ((x + y) & 0xFF));
                 buf.put((byte) 0xFF);
+            }
+        }
+        buf.flip();
+        return buf;
+    }
+
+    /** Noisy opaque tiles with fully transparent holes, like a cutout block atlas. */
+    private static ByteBuffer cutoutPattern(int width, int height) {
+        ByteBuffer buf = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.LITTLE_ENDIAN);
+        long seed = 42;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                seed = seed * 6364136223846793005L + 1442695040888963407L;
+                int noise = (int) (seed >>> 61); // 0-7, texture-like grain
+                boolean hole = ((x / 16 + y / 16) % 3 == 0) && ((x * 7 + y * 3) % 5 < 2);
+                buf.put((byte) (hole ? 0 : 60 + (x % 16) * 8 + noise));
+                buf.put((byte) (hole ? 0 : 120 + (y % 16) * 6 - noise));
+                buf.put((byte) (hole ? 0 : 40 + noise * 4));
+                buf.put((byte) (hole ? 0 : 0xFF));
             }
         }
         buf.flip();

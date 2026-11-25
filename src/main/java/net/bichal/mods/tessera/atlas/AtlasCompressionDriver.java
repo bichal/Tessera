@@ -639,7 +639,7 @@ public final class AtlasCompressionDriver {
     }
 
     /** Bump whenever encoder output for identical input changes (new presets, encoder upgrade). */
-    private static final String CACHE_VERSION = "v2"; // v2: alpha bleeding before encode
+    private static final String CACHE_VERSION = "v3"; // v2: alpha bleeding before encode; v3: bc7f + bc7enc best-of BC7
 
     private static ByteBuffer readCached(AtlasCache cache, String cacheKey, AtlasCache.CompressedFormat format,
                                          int width, int height, int quality) {

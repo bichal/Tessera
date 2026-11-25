@@ -20,7 +20,7 @@ public final class Config {
     //? if fabric {
     /*static {
         COMPRESSION_QUALITY = FabricConfig.integer("compression.compressionQuality", 4, 0, 7,
-                "BC7 compression quality preset, 0 (fastest, lowest fidelity) to 7 (slowest, highest fidelity).");
+                "BC7 compression quality preset, 0 (fastest, lowest fidelity) to 7 (slowest, highest fidelity). 0-1 use bc7f alone; 2-7 add bc7enc and keep the better of the two per block.");
         DISABLE_NATIVE_COMPRESSION = FabricConfig.bool("compression.disableNativeCompression", false,
                 "Disables all atlas compression (native and pure-Java): atlases stay vanilla RGBA8.");
         COMPRESS_ANIMATED_ATLASES = FabricConfig.bool("compression.compressAnimatedAtlases", true,
@@ -47,6 +47,7 @@ public final class Config {
         COMPRESSION_QUALITY = wrap(builder
                 .comment(
                         "BC7 compression quality preset, 0 (fastest, lowest fidelity) to 7 (slowest, highest fidelity).",
+                        "0-1 use bc7f alone; 2-7 add bc7enc and keep the better of the two per block.",
                         "Maps to a fixed preset table in the native encoder; the pure-Java fallback ignores it."
                 )
                 .translation("tessera.configuration.compressionQuality")

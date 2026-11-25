@@ -1,35 +1,37 @@
 // tessera_bridge.cpp
 
 #include "astc_bridge.h"
-#include "rdo_bc_encoder.h"
+#include "bc7f_bridge.h"
+#include "bc7enc.h"
 #include "bc7decomp.h"
+#include "rgbcx.h"
 
 #include <cstring>
 #include <cstdint>
 #include <algorithm>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 // Constants and Configuration
 
-/// Quality preset for BC7 compression.
-struct QualityPreset {
-    int bc7_uber_level;           ///< BC7 encoder uber quality level
-    int max_partitions_to_scan;   ///< Maximum partitions to scan for RDO
+/// BC7 is encoded by bc7f (Basis Universal); from preset 2 up each block is also encoded by bc7enc
+/// and keeps whichever decodes closer to the source. The two fail on different blocks (bc7enc
+/// wins many of the partly transparent ones), so even a light bc7enc pass gains 0.5-1 dB.
+/// On the vanilla atlases, preset 4 is above the old bc7enc-only preset 7 and 3-4x faster.
+struct Bc7encPreset {
+    int uber_level;      ///< -1: bc7f alone
+    int max_partitions;
 };
-
-/// BC7 quality presets (0-7 scale).
-///
-/// Higher values = better quality but slower compression.
-/// Values are balanced to provide a smooth quality/performance tradeoff.
-constexpr QualityPreset kQualityPresets[8] = {
-    {0, 8},   // Fastest, lowest quality
-    {1, 16},  // Fast
-    {2, 24},  // Balanced
-    {2, 32},  // Balanced higher
-    {3, 40},  // Good quality
-    {4, 48},  // High quality
-    {5, 56},  // Very high quality
-    {6, 64},  // Maximum quality
+constexpr Bc7encPreset kBc7encBestOf[8] = {
+    {-1, 0},  // 0: bc7f, partially analytical
+    {-1, 0},  // 1: bc7f, every candidate measured
+    {0, 0},   // 2
+    {0, 8},   // 3
+    {1, 16},  // 4 (default)
+    {2, 24},  // 5
+    {3, 40},  // 6
+    {6, 64},  // 7
 };
 
 /// BC1 quality levels (0-7 scale) mapped to rgbcx's internal levels.
@@ -48,51 +50,58 @@ constexpr int kBc1QualityLevels[8] = {
     18,  // Maximum quality
 };
 
-// Parameter Configuration
+/// Images below this many blocks (a 128x128 texture) are encoded on the calling thread: animation
+/// frames and the small mip levels would spend more on starting threads than on encoding.
+constexpr uint64_t kMinBlocksForThreads = 1024;
 
-/// Create BC7 compression parameters for a given quality preset.
-///
-/// @param quality_preset Quality level (0-7, clamped to valid range)
-/// @return Configured rdo_bc_params for BC7 compression
-rdo_bc::rdo_bc_params ParamsForPreset(int32_t quality_preset) {
-    // Clamp to valid range
-    int clamped = std::max(0, std::min(7, quality_preset));
-    const QualityPreset& preset = kQualityPresets[clamped];
+std::once_flag g_encoders_init;
 
-    rdo_bc::rdo_bc_params params;
-    params.m_bc7_uber_level = preset.bc7_uber_level;
-    params.m_bc7enc_max_partitions_to_scan = preset.max_partitions_to_scan;
-    params.m_rdo_multithreading = true;
-
-    // Detect and use available hardware threads
-    unsigned int detected_threads = std::thread::hardware_concurrency();
-    params.m_rdo_max_threads = (detected_threads > 0) ?
-        static_cast<uint32_t>(detected_threads) : 1;
-
-    params.m_status_output = false;  // Keep logs clean
-    return params;
+void InitEncoders() {
+    std::call_once(g_encoders_init, [] {
+        rgbcx::init(rgbcx::bc1_approx_mode::cBC1Ideal);
+        bc7enc_compress_block_init();
+    });
 }
 
-/// Create BC1 compression parameters for a given quality preset.
-///
-/// @param quality_preset Quality level (0-7, clamped to valid range)
-/// @return Configured rdo_bc_params for BC1 compression
-rdo_bc::rdo_bc_params Bc1ParamsForPreset(int32_t quality_preset) {
-    // Clamp to valid range
-    int clamped = std::max(0, std::min(7, quality_preset));
+/// Copies the 4x4 block at (bx, by), repeating the last row and column for partial edge blocks.
+static void ReadBlock(const uint8_t* rgba8, uint32_t width, uint32_t height, uint32_t bx, uint32_t by,
+                      uint8_t* block) {
+    for (uint32_t y = 0; y < 4; ++y) {
+        const uint32_t sy = std::min(by * 4u + y, height - 1u);
+        for (uint32_t x = 0; x < 4; ++x) {
+            const uint32_t sx = std::min(bx * 4u + x, width - 1u);
+            std::memcpy(block + (y * 4u + x) * 4u, rgba8 + (static_cast<uint64_t>(sy) * width + sx) * 4u, 4);
+        }
+    }
+}
 
-    rdo_bc::rdo_bc_params params;
-    params.m_dxgi_format = DXGI_FORMAT_BC1_UNORM;
-    params.m_bc1_quality_level = kBc1QualityLevels[clamped];
-    params.m_rdo_multithreading = true;
-
-    // Detect and use available hardware threads
-    unsigned int detected_threads = std::thread::hardware_concurrency();
-    params.m_rdo_max_threads = (detected_threads > 0) ?
-        static_cast<uint32_t>(detected_threads) : 1;
-
-    params.m_status_output = false;  // Keep logs clean
-    return params;
+/// Runs encode_row(by) for every block row, split in contiguous bands over the machine's cores.
+/// Blocks are independent, so the output is the same whatever the thread count.
+template <class EncodeRow>
+static void ForEachBlockRow(uint32_t blocks_x, uint32_t blocks_y, EncodeRow encode_row) {
+    const uint64_t total = static_cast<uint64_t>(blocks_x) * blocks_y;
+    const unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
+    const unsigned threads = total < kMinBlocksForThreads ? 1u
+            : static_cast<unsigned>(std::min<uint64_t>(hardware, blocks_y));
+    auto band = [&](uint32_t from, uint32_t to) {
+        for (uint32_t by = from; by < to; ++by) {
+            encode_row(by);
+        }
+    };
+    if (threads <= 1) {
+        band(0, blocks_y);
+        return;
+    }
+    std::vector<std::thread> workers;
+    workers.reserve(threads - 1);
+    for (unsigned i = 1; i < threads; ++i) {
+        workers.emplace_back(band, static_cast<uint32_t>(static_cast<uint64_t>(blocks_y) * i / threads),
+                             static_cast<uint32_t>(static_cast<uint64_t>(blocks_y) * (i + 1) / threads));
+    }
+    band(0, static_cast<uint32_t>(blocks_y / threads));
+    for (auto& worker : workers) {
+        worker.join();
+    }
 }
 
 // Core Encoding Implementation
@@ -100,32 +109,67 @@ rdo_bc::rdo_bc_params Bc1ParamsForPreset(int32_t quality_preset) {
 /// Encodes straight into a caller-owned buffer: no output allocation, no
 /// second copy on the Java side.
 ///
-/// @return bytes written, -1 on invalid input/encoder failure, or
+/// @return bytes written, -1 on invalid input, or
 ///         -(required size) - 2 if out_capacity is too small.
 static int64_t EncodeInto(
     const uint8_t* rgba8,
     uint32_t width,
     uint32_t height,
-    const rdo_bc::rdo_bc_params& params,
+    int32_t quality_preset,
+    bool bc7,
     uint8_t* out,
     uint64_t out_capacity
 ) {
     if (rgba8 == nullptr || out == nullptr || width == 0 || height == 0) {
         return -1;
     }
-    utils::image_u8 source_image(width, height);
-    std::memcpy(source_image.get_pixels().data(), rgba8, static_cast<size_t>(width) * height * 4);
-
-    rdo_bc::rdo_bc_params local_params = params;
-    rdo_bc::rdo_bc_encoder encoder;
-    if (!encoder.init(source_image, local_params) || !encoder.encode()) {
-        return -1;
-    }
-    uint64_t size = encoder.get_total_blocks_size_in_bytes();
+    const uint32_t blocks_x = (width + 3u) / 4u;
+    const uint32_t blocks_y = (height + 3u) / 4u;
+    const uint32_t block_bytes = bc7 ? 16u : 8u;
+    const uint64_t size = static_cast<uint64_t>(blocks_x) * blocks_y * block_bytes;
     if (size > out_capacity) {
         return -static_cast<int64_t>(size) - 2;
     }
-    std::memcpy(out, encoder.get_blocks(), size);
+    InitEncoders();
+    const int preset = std::max(0, std::min(7, quality_preset));
+
+    if (!bc7) {
+        const int level = kBc1QualityLevels[preset];
+        ForEachBlockRow(blocks_x, blocks_y, [&](uint32_t by) {
+            uint8_t block[64];
+            for (uint32_t bx = 0; bx < blocks_x; ++bx) {
+                ReadBlock(rgba8, width, height, bx, by, block);
+                rgbcx::encode_bc1(level, out + (static_cast<uint64_t>(by) * blocks_x + bx) * 8u, block, true, true);
+            }
+        });
+        return static_cast<int64_t>(size);
+    }
+
+    const uint32_t flags = tessera_bc7f::FlagsForPreset(preset);
+    const Bc7encPreset& second = kBc7encBestOf[preset];
+    const bool best_of = second.uber_level >= 0;
+    bc7enc_compress_block_params bc7enc_params;
+    if (best_of) {
+        bc7enc_compress_block_params_init(&bc7enc_params);
+        bc7enc_compress_block_params_init_linear_weights(&bc7enc_params);
+        bc7enc_params.m_uber_level = static_cast<uint32_t>(second.uber_level);
+        bc7enc_params.m_max_partitions = static_cast<uint32_t>(second.max_partitions);
+    }
+    ForEachBlockRow(blocks_x, blocks_y, [&](uint32_t by) {
+        uint8_t block[64];
+        for (uint32_t bx = 0; bx < blocks_x; ++bx) {
+            uint8_t* dst = out + (static_cast<uint64_t>(by) * blocks_x + bx) * 16u;
+            ReadBlock(rgba8, width, height, bx, by, block);
+            tessera_bc7f::EncodeBlock(dst, block, flags);
+            if (best_of) {
+                uint8_t alternative[16];
+                bc7enc_compress_block(alternative, block, &bc7enc_params);
+                if (tessera_bc7f::BlockError(alternative, block) < tessera_bc7f::BlockError(dst, block)) {
+                    std::memcpy(dst, alternative, 16);
+                }
+            }
+        }
+    });
     return static_cast<int64_t>(size);
 }
 
@@ -169,9 +213,8 @@ Java_net_bichal_mods_tessera_compress_backend_JniCompressionBackend_nativeCompre
         || static_cast<uint64_t>(in_capacity) < static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u) {
         return -1;
     }
-    const rdo_bc::rdo_bc_params params = bc7 ? ParamsForPreset(quality) : Bc1ParamsForPreset(quality);
     return static_cast<jlong>(EncodeInto(in, static_cast<uint32_t>(width), static_cast<uint32_t>(height),
-                                         params, out, static_cast<uint64_t>(out_capacity)));
+                                         quality, bc7 == JNI_TRUE, out, static_cast<uint64_t>(out_capacity)));
 }
 
 /// Decodes BC7 blocks back to RGBA8 (the round trip the self-test checks).

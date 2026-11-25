@@ -44,18 +44,16 @@ platforms = ["windows-x86_64", "linux-x86_64", "linux-aarch64", "macos-aarch64",
 ci_linux_script = "native/build-linux.sh"
 
 # Sources the bridge compiles but the repository does not carry: `bichal vendor` (and CI, before
-# the native build) fetches them at the pinned commit. bc7enc_rdo loses its PNG and deflate
-# helpers in the patch (native/vendor/patches); astc-encoder is used as published.
+# the native build) fetches them at the pinned commit. From bc7enc_rdo only the block encoders
+# (bc7enc, rgbcx) and the BC7 decoder; astc-encoder is used as published.
 [vendor.bc7enc_rdo]
 git = "https://github.com/richgel999/bc7enc_rdo.git"
 commit = "b9438627eef73a1157e84201b6fa6eb2ffd6d9f0"
 dest = "native/vendor/bc7enc_rdo"
 copy = [
-  "rdo_bc_encoder.h", "rdo_bc_encoder.cpp", "bc7enc.h", "bc7enc.cpp", "ert.h", "ert.cpp",
-  "rgbcx.h", "rgbcx.cpp", "rgbcx_table4.h", "rgbcx_table4_small.h", "utils.h", "utils.cpp",
-  "bc7decomp.h", "bc7decomp.cpp", "bc7decomp_ref.cpp", "dds_defs.h", "LICENSE",
+  "bc7enc.h", "bc7enc.cpp", "rgbcx.h", "rgbcx.cpp", "rgbcx_table4.h", "rgbcx_table4_small.h",
+  "bc7decomp.h", "bc7decomp.cpp", "LICENSE",
 ]
-patches = ["native/vendor/patches/bc7enc_rdo.patch"]
 
 [vendor.astcenc]
 git = "https://github.com/ARM-software/astc-encoder.git"
@@ -65,9 +63,17 @@ copy = ["Source/astcenc*.cpp", "Source/astcenc*.h"]
 skip = ["astcenccli_*"]
 rename = { "LICENSE.txt" = "LICENSE" }
 
+# Only the transcoder module, for its bc7f encoder (the BC7 path); KTX2, zstd and the other
+# transcoder targets are compiled out (native/CMakeLists.txt).
+[vendor.basis_universal]
+git = "https://github.com/BinomialLLC/basis_universal.git"
+commit = "073eb6a0a34a23d77e75e54f41dcd9653a52da83"
+dest = "native/vendor/basisu"
+copy = ["transcoder/basisu*", "LICENSE", "NOTICE"]
+
 # Third-party code inside the jar (ids from bichal-build-logic/legal/catalog.toml).
 [legal.third_party]
-components = ["bc7enc_rdo", "astcenc"]
+components = ["bc7enc_rdo", "astcenc", "basis_universal"]
 
 # Releases and descriptions (bichal-build-logic/publishing). README.md is the
 # description on GitHub, Modrinth and CurseForge. Per-system jars (only that

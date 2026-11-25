@@ -56,6 +56,17 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Changed
 
+- BC7 is encoded by bc7f (Basis Universal's real-time BC7 encoder, which uses the whole format) and, from
+  `compressionQuality` 2 up, also by bc7enc: each 4x4 block keeps whichever decodes closer to the source. On the vanilla
+  atlases the default preset is 0.15-1.5 dB PSNR above the old encoder at any of its presets, and 2.5-4 times faster
+  on four cores.
+  `compressionQuality` 0 and 1 are bc7f alone (one atlas in a few milliseconds). Fully opaque blocks keep alpha 255
+  (bc7f's mode 6 p-bit optimisation is off). Cache entries from the old encoder are not reused (`v3`).
+- The native BC7 and BC1 encoders run on every core: the bridge splits each image into bands of block rows. Until now
+  they ran on one thread (the upstream loops are OpenMP, which the bridge was never built with), whatever the comments
+  said. Images under 1024 blocks (animation frames, small mip levels) stay on the calling thread.
+- bc7enc_rdo is vendored down to its block encoders and BC7 decoder (no `rdo_bc_encoder`, `ert`, `utils`), without
+  the patch; basis_universal's transcoder module is a new `[vendor.*]` entry.
 - The VRAM budget is advisory, as its setting says: an atlas over it is still compressed (and a warning logged).
   Before, it was left RGBA8888, which takes two to eight times more than the compressed chain.
 - Disk cache: only the whole-chain entry is written (per-level entries were a second copy of the same blocks); old

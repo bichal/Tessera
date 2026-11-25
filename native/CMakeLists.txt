@@ -15,17 +15,15 @@ endif()
 
 set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/bc7enc_rdo)
 
+# Only the block encoders and the decoder: the image-level rdo_bc_encoder (and its RDO post-pass)
+# is not used, the bridge splits images into blocks itself.
 set(VENDOR_SOURCES
     ${VENDOR_DIR}/bc7enc.cpp
-    ${VENDOR_DIR}/ert.cpp
     ${VENDOR_DIR}/rgbcx.cpp
-    ${VENDOR_DIR}/utils.cpp
     ${VENDOR_DIR}/bc7decomp.cpp
-    ${VENDOR_DIR}/bc7decomp_ref.cpp
-    ${VENDOR_DIR}/rdo_bc_encoder.cpp
 )
 
-foreach(required rdo_bc_encoder.h bc7enc.h ert.h rgbcx.h utils.h bc7decomp.h dds_defs.h)
+foreach(required bc7enc.h rgbcx.h rgbcx_table4.h rgbcx_table4_small.h bc7decomp.h)
     if(NOT EXISTS ${VENDOR_DIR}/${required})
         message(FATAL_ERROR
             "Vendor sources missing or incomplete in ${VENDOR_DIR} (missing "
@@ -67,6 +65,32 @@ else()
     target_compile_options(astcenc PRIVATE -O3 -ffp-contract=off -fno-exceptions -fno-rtti)
 endif()
 
+# Basis Universal's transcoder module, for its bc7f BC7 encoder only. Everything the transcoder
+# can switch off is: KTX2 (and with it zstd) and the targets Tessera never transcodes to. XUASTC
+# stays, bc7f is built under it. A static library of its own because the file is large and needs
+# /bigobj on MSVC; same floating-point settings as the bridge.
+set(BASISU_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/basisu)
+if(NOT EXISTS ${BASISU_DIR}/basisu_transcoder.cpp)
+    message(FATAL_ERROR
+        "basis_universal sources missing in ${BASISU_DIR}. Run:\n    bichal vendor .\nand re-run the build.")
+endif()
+add_library(basisu_bc7f STATIC ${CMAKE_CURRENT_SOURCE_DIR}/bc7f_bridge.cpp ${BASISU_DIR}/basisu_transcoder.cpp)
+target_include_directories(basisu_bc7f PRIVATE ${BASISU_DIR})
+set_target_properties(basisu_bc7f PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_definitions(basisu_bc7f PRIVATE
+    BASISD_SUPPORT_KTX2=0 BASISD_SUPPORT_KTX2_ZSTD=0 BASISD_SUPPORT_PVRTC1=0 BASISD_SUPPORT_PVRTC2=0
+    BASISD_SUPPORT_ETC2_EAC_A8=0 BASISD_SUPPORT_ETC2_EAC_RG11=0 BASISD_SUPPORT_ATC=0 BASISD_SUPPORT_FXT1=0
+    $<$<CONFIG:Release>:NDEBUG>)
+if(MSVC)
+    target_compile_options(basisu_bc7f PRIVATE $<$<CONFIG:Release>:/O2> /fp:fast /bigobj /GR- /W0 /Gy)
+else()
+    target_compile_options(basisu_bc7f PRIVATE -O3 -ffast-math -fno-exceptions -fno-rtti -w
+        -ffunction-sections -fdata-sections)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+        target_compile_options(basisu_bc7f PRIVATE -msse4.1)
+    endif()
+endif()
+
 add_library(tessera_bridge SHARED
     ${VENDOR_SOURCES}
     ${VENDOR_DIR}/tessera_bridge.cpp
@@ -74,7 +98,7 @@ add_library(tessera_bridge SHARED
 )
 
 target_include_directories(tessera_bridge PRIVATE ${VENDOR_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(tessera_bridge PRIVATE astcenc)
+target_link_libraries(tessera_bridge PRIVATE astcenc basisu_bc7f)
 
 # The encoder spawns worker threads (std::thread). Without this, on glibc < 2.34
 # libpthread is not recorded as NEEDED and pthread_* only resolve because the
@@ -138,6 +162,12 @@ else()
         # Static C++ runtime: the .so must not depend on the player's
         # libstdc++ version (older distros ship older GLIBCXX symbols).
         target_link_options(tessera_bridge PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    # Drops the parts of the basis_universal transcoder the bc7f encoder never reaches.
+    if(APPLE)
+        target_link_options(tessera_bridge PRIVATE -Wl,-dead_strip)
+    else()
+        target_link_options(tessera_bridge PRIVATE -Wl,--gc-sections)
     endif()
     include(CheckIPOSupported)
     check_ipo_supported(RESULT lto_supported)

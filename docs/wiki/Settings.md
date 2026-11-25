@@ -5,7 +5,7 @@ NeoForge: the in-game mod settings, or `config/tessera-client.toml`. Fabric: `co
 
 | Option | Default | Effect |
 |---|---|---|
-| `compressionQuality` | `4` | BC7 quality preset, `0` (fastest) to `7` (best) |
+| `compressionQuality` | `4` | BC7 quality preset, `0` (fastest) to `7` (best). `0`-`1`: bc7f alone; `2`-`7`: bc7f and an increasingly thorough bc7enc, best per block |
 | `disableNativeCompression` | `false` | Turns compression off; atlases stay vanilla |
 | `compressAnimatedAtlases` | `true` | Also compresses atlases with animated textures (the block atlas), with every frame encoded once; off keeps them RGBA8888. Ignored while Kerria is installed |
 | `vramBudgetTargetMb` | `2048` | Budget used when the GPU's VRAM can't be detected; going over it only logs a warning (a compressed atlas always takes less than the vanilla one) |

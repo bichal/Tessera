@@ -41,3 +41,8 @@ native/vendor/astcenc/*
 *.a
 *.o
 *.obj
+
+# VENDOR (basis_universal)
+native/vendor/basisu/*
+!native/vendor/basisu/LICENSE
+!native/vendor/basisu/VENDORING.md

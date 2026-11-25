@@ -36,8 +36,9 @@
   unchanged atlases. Entries are stored compressed with Celeris (zstd), typically at about a tenth of their size.
   An atlas is keyed by a digest of its layout and sprite pixels: the whole encoded mip chain is one file, so a launch
   with nothing changed skips pixel assembly, mip generation and encoding.
-- The native encoders ([bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) for BC7 and BC1, ARM's
-  [astc-encoder](https://github.com/ARM-software/astc-encoder) for ASTC) are loaded over JNI (no launch flags), bundled
+- The native encoders (bc7f from [Basis Universal](https://github.com/BinomialLLC/basis_universal) together with
+  bc7enc from [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) for BC7, rgbcx from bc7enc_rdo for BC1, ARM's
+  [astc-encoder](https://github.com/ARM-software/astc-encoder) for ASTC) use every core and are loaded over JNI (no launch flags), bundled
   for Windows x86_64, Linux x86_64 and AArch64 (glibc 2.31+) and macOS (Apple Silicon and Intel). Anywhere else, or if
   they fail to load (Android launchers use bionic libc), pure-Java encoders take over. The Java ASTC encoder is simpler
   (one colour line per block): it checks its own result and leaves an atlas as vanilla rather than store one that would
