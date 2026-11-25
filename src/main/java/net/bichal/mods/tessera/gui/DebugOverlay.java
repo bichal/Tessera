@@ -35,6 +35,13 @@ public final class DebugOverlay {
     public static long totalCompressedAtlasBytes = 0;
     private static volatile String cachedHardwareVramUsage = "§7N/A (Driver Limited)§r";
     private static volatile long lastHardwareVramQueryMs = -1L;
+    private static final long LINES_REFRESH_INTERVAL_MS = 1000L;
+    /** Bumped whenever the stats change, so F3 shows a new value at once. */
+    private static volatile int statsVersion;
+    private static List<String> cachedSummary;
+    private static List<String> cachedBreakdown = List.of();
+    private static int cachedVersion;
+    private static long cachedAtMs;
 
     private DebugOverlay() {
     }
@@ -52,6 +59,7 @@ public final class DebugOverlay {
         isCompressedAtlasActive = true;
         bytesSavedByBC7 += savedBytes;
         totalCompressedAtlasBytes += compressedBytes;
+        statsVersion++;
     }
 
     /**
@@ -66,6 +74,7 @@ public final class DebugOverlay {
         String key = atlasLocation + "/" + bucketName;
         // Replace for the same reason as recordCompression.
         perBucketStats.put(key, new AtlasStats(savedBytes, compressedBytes));
+        statsVersion++;
     }
 
 
@@ -79,6 +88,7 @@ public final class DebugOverlay {
         isCompressedAtlasActive = !perAtlasStats.isEmpty();
         String prefix = atlasLocation + "/";
         perBucketStats.keySet().removeIf(key -> key.startsWith(prefix));
+        statsVersion++;
     }
 
     @SuppressWarnings("unused")
@@ -88,6 +98,29 @@ public final class DebugOverlay {
 
     /** Compression status, atlas VRAM (static atlases compressed, animated ones RGBA), budget and GPU memory. */
     public static List<String> summaryLines() {
+        refreshLines();
+        return cachedSummary;
+    }
+
+    /**
+     * F3 asks for the lines every frame; they are rebuilt once a second (the GPU memory query's own
+     * interval) or as soon as the compression stats change, not per frame.
+     */
+    private static void refreshLines() {
+        long now = System.currentTimeMillis();
+        int version = statsVersion;
+        if (cachedSummary != null && version == cachedVersion && now - cachedAtMs < LINES_REFRESH_INTERVAL_MS) {
+            return;
+        }
+        cachedSummary = List.copyOf(buildSummaryLines());
+        List<String> breakdown = new ArrayList<>();
+        appendPerAtlasBreakdown(breakdown);
+        cachedBreakdown = List.copyOf(breakdown);
+        cachedVersion = version;
+        cachedAtMs = now;
+    }
+
+    private static List<String> buildSummaryLines() {
         List<String> lines = new ArrayList<>();
         lines.add("§d[Tessera]");
 
@@ -122,9 +155,8 @@ public final class DebugOverlay {
 
     /** Savings per atlas, and per bucket within an atlas. */
     public static List<String> breakdownLines() {
-        List<String> lines = new ArrayList<>();
-        appendPerAtlasBreakdown(lines);
-        return lines;
+        refreshLines();
+        return cachedBreakdown;
     }
 
     // Shown while F3 is open (renamed from IN_F3 to IN_OVERLAY in 1.21.11). In a holder

@@ -237,6 +237,7 @@ public final class TesseraSelfTest {
                         + " progress), %d encoded; smallest-level patches: %d, %d encoded",
                 EncodeStats.keyframeMisses, EncodeStats.blendLookups, EncodeStats.foundByFrame, EncodeStats.blendMisses,
                 EncodeStats.deepPatches, EncodeStats.deepMisses));
+        lines.add(String.format("  compressed uploads: %.1f per tick", (double) EncodeStats.uploads / window));
         boolean pass;
         try {
             pass = check(lines);

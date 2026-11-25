@@ -85,8 +85,12 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
   through the native encoder at preset 0 (bc7f) instead of the pure-Java one.
 - Background results (precoded frames, best-quality keyframes) reach the render thread through Celeris's lock-free
   `AsyncResultQueue` instead of a `ConcurrentLinkedQueue`; an overflow queue keeps anything that does not fit.
+- Animated sprites no longer bind the atlas, reset the pixel unpack state and drain the background results one sprite
+  at a time: that is done once per atlas and tick (about an eighth of what animations cost the render thread in a
+  spark profile on a real GPU).
+- F3's Tessera lines are rebuilt once a second, or as soon as the compression stats change, instead of every frame.
 - The self-test reports everything animations cost the render thread per tick, not only the encodes, and how many
-  blends were found by frame and progress.
+  blends were found by frame and progress, and how many compressed uploads a tick makes.
 - BC7 is encoded by bc7f (Basis Universal's real-time BC7 encoder, which uses the whole format) and, from
   `compressionQuality` 2 up, also by bc7enc: each 4x4 block keeps whichever decodes closer to the source. On the vanilla
   atlases the default preset is 0.15-1.5 dB PSNR above the old encoder at any of its presets, and 2.5-4 times faster

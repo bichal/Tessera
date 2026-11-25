@@ -104,6 +104,8 @@ public final class CompressedAnimationUploader {
 
     /** Atlas currently inside cycleAnimationFrames (up to 1.21.10), or null when it is not compressed. */
     private static AtlasState active;
+    /** Atlas whose texture and unpack state are set for this tick's uploads (see {@link #prepareUploads}). */
+    private static AtlasState prepared;
     private static ByteBuffer rgbaScratch = ByteBuffer.allocateDirect(16 * 16 * 4).order(ByteOrder.LITTLE_ENDIAN);
 
     /** Best-quality keyframe encodes, one at a time, never on the render thread. */
@@ -200,6 +202,7 @@ public final class CompressedAnimationUploader {
     public static void unregister(TextureAtlas atlas) {
         if (COMPRESSED_ATLASES.remove(atlas) != null) {
             epoch++;
+            prepared = null;
             KEYFRAME_CACHE.clear();
             BY_CONTENT.clear();
             BLEND_KEYS.clear();
@@ -492,10 +495,38 @@ public final class CompressedAnimationUploader {
 
     public static void beginAnimationCycle(TextureAtlas atlas) {
         active = COMPRESSED_ATLASES.get(atlas);
+        prepared = null;
     }
 
     public static void endAnimationCycle() {
         active = null;
+        prepared = null;
+    }
+
+    /**
+     * Once per tick and atlas rather than per sprite: applies finished background work, binds the
+     * atlas and resets the unpack state its uploads need.
+     */
+    private static void prepareUploads(AtlasState state) {
+        if (prepared == state) {
+            return;
+        }
+        UPGRADES.drainTo(Runnable::run, UPGRADES.capacity());
+        for (Runnable upgrade; (upgrade = UPGRADE_OVERFLOW.poll()) != null; ) {
+            upgrade.run();
+        }
+        TesseraCompat.bindTexture(state.glId());
+        TesseraCompat.resetUnpackState();
+        prepared = state;
+    }
+
+    /** Uploads cached blocks over a region (a duplicate: cached buffers are shared and never moved). */
+    private static void uploadBlocks(int level, int x, int y, int w, int h, int glFormat,
+                                     ByteBuffer blocks) {
+        if (TesseraSelfTest.ENABLED) {
+            EncodeStats.uploads++;
+        }
+        GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, level, x, y, w, h, glFormat, blocks.duplicate());
     }
 
     /**
@@ -555,6 +586,7 @@ public final class CompressedAnimationUploader {
             return false;
         }
         long drawStart = TesseraSelfTest.ENABLED ? System.nanoTime() : 0L;
+        prepared = null; // vanilla may have bound something else since the last tick
         for (Map.Entry<Object, TextureAtlasSprite> entry : state.spritesByState().entrySet()) {
             Object animation = entry.getKey();
             if (!all && !AnimationReader.needsToDraw(animation)) {
@@ -576,6 +608,7 @@ public final class CompressedAnimationUploader {
                     key, frame.interpolated() ? blendKey(frame) : 0L, sprite.getX(), sprite.getY(),
                     w + 2 * padding, h + 2 * padding, images.length - 1, pixels);
         }
+        prepared = null;
         if (TesseraSelfTest.ENABLED) {
             EncodeStats.addDraw(System.nanoTime() - drawStart);
         }
@@ -677,12 +710,7 @@ public final class CompressedAnimationUploader {
      */
     private static void writeFrame(AtlasState state, SpriteContents owner, boolean cacheable, boolean updateDeep, long cacheKey,
                                    long blendKey, int x, int y, int width, int height, int frameLevels, FramePixels pixels) {
-        UPGRADES.drainTo(Runnable::run, UPGRADES.capacity());
-        for (Runnable upgrade; (upgrade = UPGRADE_OVERFLOW.poll()) != null; ) {
-            upgrade.run();
-        }
-        TesseraCompat.bindTexture(state.glId());
-        TesseraCompat.resetUnpackState();
+        prepareUploads(state);
         ByteBuffer[] cached = null;
         Map<Long, ByteBuffer[]> spriteCache = null;
         if (cacheable) {
@@ -725,7 +753,7 @@ public final class CompressedAnimationUploader {
                     long[] contentKeys = blendKey != 0L ? blendContentKeys(owner, blendKey, frameLevels) : null;
                     ByteBuffer known = contentKeys != null && contentKeys[level] != 0L ? BY_CONTENT.get(contentKeys[level]) : null;
                     if (known != null) {
-                        blocks = known.duplicate();
+                        blocks = known;
                         if (TesseraSelfTest.ENABLED) {
                             EncodeStats.found++;
                             EncodeStats.foundByFrame++;
@@ -754,8 +782,7 @@ public final class CompressedAnimationUploader {
                     encoded[level] = blocks;
                 }
             }
-            GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, level, x >> level, y >> level, w, h, glFormat,
-                    blocks.duplicate());
+            uploadBlocks(level, x >> level, y >> level, w, h, glFormat, blocks);
         }
         if (cacheable && cached == null) {
             spriteCache.put(cacheKey, encoded);
@@ -819,7 +846,8 @@ public final class CompressedAnimationUploader {
 
     /**
      * Blocks for an image that may have been encoded before: by a 64-bit hash of its
-     * pixels, size and format. A new image is encoded in software now; with
+     * pixels, size and format; the cached buffer itself, never to be changed (callers upload a
+     * duplicate). A new image is encoded in software now; with
      * {@code best}, the native encoder redoes it in the background and the cache
      * takes that version.
      */
@@ -836,7 +864,7 @@ public final class CompressedAnimationUploader {
             if (TesseraSelfTest.ENABLED) {
                 EncodeStats.found++;
             }
-            return known.duplicate();
+            return known;
         }
         ByteBuffer input = best && TesseraRuntime.isNativeActive() && (w & 3) == 0 && (h & 3) == 0
                 ? copyOf(rgba) : null;
@@ -850,7 +878,7 @@ public final class CompressedAnimationUploader {
                         }
                     });
         }
-        return blocks.duplicate();
+        return blocks;
     }
 
     private static long contentHash(ByteBuffer rgba, int w, int h, CompressionPipeline.Target target) {
@@ -944,7 +972,7 @@ public final class CompressedAnimationUploader {
         if (TesseraSelfTest.ENABLED && EncodeStats.found == foundBefore) {
             EncodeStats.deepMisses++;
         }
-        GL13.glCompressedTexSubImage2D(GL11.GL_TEXTURE_2D, level, x0, y0, rw, rh, glFormat, blocks);
+        uploadBlocks(level, x0, y0, rw, rh, glFormat, blocks);
     }
 
     /** One frame's pixels at a mip level as RGBA8, in a buffer of its own (any thread). */
@@ -1017,6 +1045,8 @@ public final class CompressedAnimationUploader {
         public static long drawNanos, maxDrawNanos;
         /** Blends found by frame and progress, without building their pixels. */
         public static long foundByFrame;
+        /** Compressed sub-image uploads (one per region and mip level drawn). */
+        public static long uploads;
         private static long bestCalls, bestNanos;
 
         private EncodeStats() {
@@ -1051,6 +1081,7 @@ public final class CompressedAnimationUploader {
             keyframeMisses = blendLookups = deepPatches = blendMisses = deepMisses = 0;
             drawNanos = maxDrawNanos = 0;
             foundByFrame = 0;
+            uploads = 0;
             bestCalls = bestNanos = 0;
         }
     }
