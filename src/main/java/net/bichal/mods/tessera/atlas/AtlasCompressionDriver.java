@@ -55,8 +55,34 @@ public final class AtlasCompressionDriver {
     public record AssembledAtlas(ByteBuffer pixels, boolean opaque) {
     }
 
-    /** Sprites per parallel chunk when copying or digesting an atlas's sprites. */
+    /** At most this many sprites per parallel chunk when copying or digesting an atlas's sprites... */
     private static final int SPRITES_PER_CHUNK = 16;
+    /** ...and a chunk closes once it holds this many texels, so atlases of a few large sprites split too. */
+    private static final int TEXELS_PER_CHUNK = 128 * 128;
+
+    /**
+     * Chunk boundaries over {@code sprites}: chunk {@code g} covers {@code [b[g], b[g + 1])}, closing at
+     * {@link #SPRITES_PER_CHUNK} sprites or {@link #TEXELS_PER_CHUNK} texels, whichever comes first.
+     */
+    private static int[] spriteChunks(TextureAtlasSprite[] sprites) {
+        int[] bounds = new int[sprites.length + 1];
+        int chunks = 0;
+        int count = 0;
+        long texels = 0;
+        for (int i = 0; i < sprites.length; i++) {
+            if (count == 0) {
+                bounds[chunks++] = i;
+            }
+            count++;
+            texels += (long) sprites[i].contents().width() * sprites[i].contents().height();
+            if (count >= SPRITES_PER_CHUNK || texels >= TEXELS_PER_CHUNK) {
+                count = 0;
+                texels = 0;
+            }
+        }
+        bounds[chunks] = sprites.length;
+        return java.util.Arrays.copyOf(bounds, chunks + 1);
+    }
 
     /**
      * Assembles one contiguous RGBA8 buffer for an entire atlas from its
@@ -87,12 +113,13 @@ public final class AtlasCompressionDriver {
         byte[] atlas = new byte[atlasWidth * atlasHeight * 4];
         TextureAtlasSprite[] sprites = regions.toArray(new TextureAtlasSprite[0]);
         long[] fingerprints = new long[sprites.length];
-        int groups = (sprites.length + SPRITES_PER_CHUNK - 1) / SPRITES_PER_CHUNK;
+        int[] chunks = spriteChunks(sprites);
+        int groups = chunks.length - 1;
         boolean[] opaqueGroups = new boolean[groups];
         ParallelWork.forEach(groups, group -> {
             int texelAnd = -1;
             int[] row = new int[0];
-            for (int i = group * SPRITES_PER_CHUNK, end = Math.min(sprites.length, i + SPRITES_PER_CHUNK); i < end; i++) {
+            for (int i = chunks[group], end = chunks[group + 1]; i < end; i++) {
                 TextureAtlasSprite sprite = sprites[i];
                 int padding = TesseraCompat.padding(sprite);
                 int contentWidth = sprite.contents().width();
@@ -179,12 +206,13 @@ public final class AtlasCompressionDriver {
         TextureAtlasSprite[] sprites = regions.toArray(new TextureAtlasSprite[0]);
         byte[][] spriteDigests = new byte[sprites.length][];
         AtlasFormats.Alpha[] alphas = new AtlasFormats.Alpha[sprites.length];
-        ParallelWork.forEach((sprites.length + SPRITES_PER_CHUNK - 1) / SPRITES_PER_CHUNK, group -> {
+        int[] chunks = spriteChunks(sprites);
+        ParallelWork.forEach(chunks.length - 1, group -> {
             MessageDigest spriteDigest = TesseraHasher.newDigest();
             byte[] row = new byte[0];
             int[] texels = new int[0];
             ByteBuffer place = ByteBuffer.allocate(Integer.BYTES * 4).order(ByteOrder.LITTLE_ENDIAN);
-            for (int i = group * SPRITES_PER_CHUNK, end = Math.min(sprites.length, i + SPRITES_PER_CHUNK); i < end; i++) {
+            for (int i = chunks[group], end = chunks[group + 1]; i < end; i++) {
                 TextureAtlasSprite sprite = sprites[i];
                 int padding = TesseraCompat.padding(sprite);
                 int width = sprite.contents().width() + 2 * padding;

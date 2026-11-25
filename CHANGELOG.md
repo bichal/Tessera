@@ -92,6 +92,9 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Changed
 
+- Atlas fingerprinting and assembly split sprites into parallel chunks by texels as well as by count: a chunk closes
+  at 16 sprites or 128x128 texels, so atlases of a few large sprites, which were one chunk done by the calling thread
+  alone, spread over the workers too. Fingerprints and cache keys are unchanged.
 - A freshly encoded atlas is written to the disk cache on a task of its own, after it is handed back for upload, so
   the upload no longer waits for zstd (about 1.8 s over a resource pack change in one profile).
 - GPU BC7 encodes no longer hold the render thread until the GPU is done: a compression thread now advances the
