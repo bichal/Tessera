@@ -23,7 +23,7 @@ public class EsEsLanguageProvider extends LanguageProvider {
         // Categorías (Título, Tooltip y Botones de submenú)
         addConfigCategory("compression", "Compresión", "Ajustes de compresión nativa BC7 y congelación de animaciones.", "Ajustes de Compresión");
         addConfigCategory("deduplication", "Desduplicación", "Ajustes de hashing perceptual y fusión de sprites duplicados.", "Ajustes de Desduplicación");
-        addConfigCategory("vramBudget", "Límite de VRAM", "Ajustes de límites de memoria VRAM y reducción de calidad.", "Ajustes de Límite de VRAM");
+        addConfigCategory("vramBudget", "Límite de VRAM", "Cuánta VRAM puede usar Tessera para los atlas comprimidos y el banco de frames de animación.", "Ajustes de Límite de VRAM");
         addConfigCategory("cache", "Caché", "Ajustes de la ubicación del almacenamiento en disco.", "Ajustes de Caché");
         addConfigCategory("debug", "Depuración", "Ajustes de visualización e información avanzada en la pantalla F3.", "Ajustes de Depuración");
 
@@ -47,8 +47,10 @@ public class EsEsLanguageProvider extends LanguageProvider {
                 "Distancia Hamming (0-64) para huellas pHash de 64 bits. Valores más bajos son más estrictos al fusionar sprites duplicados.");
 
         // Opciones de Límite de VRAM
-        addConfigOption("vramBudgetTargetMb", "Objetivo de VRAM (MB)",
-                "Límite orientativo de memoria VRAM en megabytes evaluado durante el empaquetado de atlas.");
+        addConfigOption("vramBudgetTargetMb", "Límite de VRAM (MB)",
+                "VRAM que puede usar Tessera para los atlas comprimidos y el banco de frames de animación. El banco de frames solo crece dentro de él; un atlas que lo supere se comprime igualmente (sin comprimir ocuparía más), con un aviso en el registro. Se ignora con el Límite Automático activado si la GPU informa de su VRAM.");
+        addConfigOption("vramBudgetAuto", "Límite Automático",
+                "Calcula el límite a partir de la GPU: tres cuartas partes de su VRAM dedicada (NVIDIA) o de la VRAM libre al arrancar (AMD). Si el driver no la indica, se usa el valor de Límite de VRAM.");
 
         // Opciones de Caché
         addConfigOption("cacheDirectory", "Directorio de Caché",

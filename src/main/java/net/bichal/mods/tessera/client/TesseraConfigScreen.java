@@ -39,13 +39,14 @@ public final class TesseraConfigScreen extends Screen {
     private final Option<Boolean> compressGui = new BoolOption("compressGuiAtlas", Config.COMPRESS_GUI_ATLAS);
     private final Option<Integer> dedup = new IntOption("dedupSimilarityThreshold", Config.DEDUP_SIMILARITY_THRESHOLD, 0, 64, 1);
     private final Option<Integer> vramBudget = new IntOption("vramBudgetTargetMb", Config.VRAM_BUDGET_TARGET_MB, 256, 16384, 64);
+    private final Option<Boolean> vramBudgetAuto = new BoolOption("vramBudgetAuto", Config.VRAM_BUDGET_AUTO);
     private final Option<String> cacheDirectory = new TextOption("cacheDirectory", Config.CACHE_DIRECTORY);
     private final Option<Boolean> extendedDebug = new BoolOption("showExtendedDebugBreakdown", Config.SHOW_EXTENDED_DEBUG_BREAKDOWN);
 
     private final List<Section> sections = List.of(
             new Section("compression", List.of(quality, disableNative, compressAnimated, gpuCompression, compressGui)),
             new Section("deduplication", List.of(dedup)),
-            new Section("vramBudget", List.of(vramBudget)),
+            new Section("vramBudget", List.of(vramBudgetAuto, vramBudget)),
             new Section("cache", List.of(cacheDirectory)),
             new Section("debug", List.of(extendedDebug)));
 

@@ -23,7 +23,7 @@ public class EnUsLanguageProvider extends LanguageProvider {
         // Categories (Title, Tooltip and Submenu buttons)
         addConfigCategory("compression", "Compression", "Configure BC7 native compression behavior and animation freezing.", "Compression Settings");
         addConfigCategory("deduplication", "Deduplication", "Configure perceptual hashing and near-duplicate sprite merging.", "Deduplication Settings");
-        addConfigCategory("vramBudget", "VRAM Budget", "Configure advisory VRAM limits and quality step-down logic.", "VRAM Budget Settings");
+        addConfigCategory("vramBudget", "VRAM Budget", "How much VRAM Tessera may use for compressed atlases and the animation frame bank.", "VRAM Budget Settings");
         addConfigCategory("cache", "Cache", "Configure disk cache location for compiled BC7 texture blocks.", "Cache Settings");
         addConfigCategory("debug", "Debug", "Configure debug overlay display and extended information on the F3 screen.", "Debug Settings");
 
@@ -47,8 +47,10 @@ public class EnUsLanguageProvider extends LanguageProvider {
                 "Hamming distance (0-64) for 64-bit pHash fingerprints. Lower values are stricter when merging duplicate sprites.");
 
         // VRAM Budget Options
-        addConfigOption("vramBudgetTargetMb", "VRAM Budget Target (MB)",
-                "Advisory VRAM memory limit in megabytes evaluated during atlas stitching.");
+        addConfigOption("vramBudgetTargetMb", "VRAM Budget (MB)",
+                "VRAM Tessera may use for compressed atlases and the animation frame bank. The frame bank only grows within it; an atlas over it is still compressed (vanilla would take more), with a warning in the log. Ignored while Automatic Budget is on and the GPU reports its VRAM.");
+        addConfigOption("vramBudgetAuto", "Automatic Budget",
+                "Sets the budget from the GPU: three quarters of its dedicated VRAM (NVIDIA) or of the free VRAM at startup (AMD). Where the driver does not say, the VRAM Budget value is used.");
 
         // Cache Options
         addConfigOption("cacheDirectory", "Cache Directory",

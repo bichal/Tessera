@@ -42,9 +42,11 @@
   "tessera.configuration.undoAll": "Deshacer cambios",
   "tessera.configuration.vramBudget": "Límite de VRAM",
   "tessera.configuration.vramBudget.button": "Ajustes de Límite de VRAM",
-  "tessera.configuration.vramBudget.tooltip": "Ajustes de límites de memoria VRAM y reducción de calidad.",
-  "tessera.configuration.vramBudgetTargetMb": "Objetivo de VRAM (MB)",
-  "tessera.configuration.vramBudgetTargetMb.tooltip": "Límite orientativo de memoria VRAM en megabytes evaluado durante el empaquetado de atlas.",
+  "tessera.configuration.vramBudget.tooltip": "Cuánta VRAM puede usar Tessera para los atlas comprimidos y el banco de frames de animación.",
+  "tessera.configuration.vramBudgetAuto": "Límite Automático",
+  "tessera.configuration.vramBudgetAuto.tooltip": "Calcula el límite a partir de la GPU: tres cuartas partes de su VRAM dedicada (NVIDIA) o de la VRAM libre al arrancar (AMD). Si el driver no la indica, se usa el valor de Límite de VRAM.",
+  "tessera.configuration.vramBudgetTargetMb": "Límite de VRAM (MB)",
+  "tessera.configuration.vramBudgetTargetMb.tooltip": "VRAM que puede usar Tessera para los atlas comprimidos y el banco de frames de animación. El banco de frames solo crece dentro de él; un atlas que lo supere se comprime igualmente (sin comprimir ocuparía más), con un aviso en el registro. Se ignora con el Límite Automático activado si la GPU informa de su VRAM.",
   "tessera.debug.advanced_atlas_info": "Info avanzada de atlas: %s",
   "tessera.overlay.vram_saved": "VRAM Ahorrada: %s MB (BC7 Activo)"
 }

@@ -23,17 +23,38 @@ public final class VramBudgetEngine {
     private VramBudgetEngine() {
     }
 
+    /**
+     * The VRAM Tessera may use, in megabytes: a server rule first, then three quarters of what the
+     * driver reports when the automatic budget is on, and otherwise (or where the driver does not
+     * say) the configured value.
+     */
     public static int getEffectiveBudgetMb() {
         if (RulesManager.forcedVramBudgetMb != null) {
             return RulesManager.forcedVramBudgetMb;
         }
-
-        int hardwareVram = queryHardwareVramMb();
-        if (hardwareVram > 0) {
-            return (int) (hardwareVram * 0.75);
+        if (Config.get(Config.VRAM_BUDGET_AUTO)) {
+            int hardwareVram = queryHardwareVramMb();
+            if (hardwareVram > 0) {
+                return (int) (hardwareVram * 0.75);
+            }
         }
-
         return Config.get(Config.VRAM_BUDGET_TARGET_MB);
+    }
+
+    /** Where {@link #getEffectiveBudgetMb()} comes from: "server", "auto" or "manual". */
+    public static String budgetSource() {
+        if (RulesManager.forcedVramBudgetMb != null) {
+            return "server";
+        }
+        return Config.get(Config.VRAM_BUDGET_AUTO) && queryHardwareVramMb() > 0 ? "auto" : "manual";
+    }
+
+    /**
+     * Whether {@code extraBytes} more (the atlases already resident aside) stay within the budget.
+     * The frame bank asks this before every page it adds.
+     */
+    public static boolean withinBudget(long extraBytes) {
+        return totalResidentBytes() + extraBytes <= (long) getEffectiveBudgetMb() << 20;
     }
 
     private static int queryHardwareVramMb() {

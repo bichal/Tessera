@@ -152,7 +152,9 @@ public final class DebugOverlay {
             lines.add(String.format("Animation frame bank (GPU): §e%.0f MB§r", bankBytes / (1024.0 * 1024.0)));
         }
         lines.add("BC7 encoder: " + GpuCompression.overlayLabel());
-        lines.add(String.format("VRAM Budget: %d MB", budgetTargetMB));
+        double usedMB = (VramBudgetEngine.totalResidentBytes() + bankBytes) / (1024.0 * 1024.0);
+        lines.add(String.format("VRAM Budget: %s%.0f§r / %d MB §7(%s)§r",
+                usedMB > budgetTargetMB ? "§c" : "§a", usedMB, budgetTargetMB, VramBudgetEngine.budgetSource()));
         lines.add("GPU VRAM: " + getHardwareVramUsage());
         return lines;
     }

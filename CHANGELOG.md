@@ -7,6 +7,9 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Added
 
+- `vramBudgetAuto` (off by default): takes the VRAM budget from the GPU, three quarters of its dedicated VRAM (NVIDIA)
+  or of the free VRAM at startup (AMD), and the configured `vramBudgetTargetMb` where the driver does not say. F3 shows
+  the VRAM Tessera uses against the budget and where the budget comes from.
 - `compressGuiAtlas` (off by default, experimental): also compresses the GUI atlas. Its fully transparent texels are
   set to 0 instead of bled, and after encoding every BC7 block that holds one is decoded (a pure-Java BC7 decoder,
   checked bit for bit against the native one on every mode); where one does not come back as exactly 0, the block is
@@ -167,6 +170,10 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Fixed
 
+- `vramBudgetTargetMb` was ignored on any GPU that reports its VRAM (three quarters of it was used instead), and the
+  animation frame bank grew regardless of the budget. The configured value is now the budget unless `vramBudgetAuto`
+  is on, and the bank adds a page only while the atlases and the bank fit in it (it starts over with the pages it
+  has, or stays off).
 - A Fabric production client (intermediary names on 1.21.x) left every atlas uncompressed: the background executor,
   the GL id of a texture, the 1.21.1 pixel getter and the animation timeline were looked up by Mojang name only. Each
   lookup now tries the intermediary name as well; `selftestProd` runs the self-test with the remapped jar.

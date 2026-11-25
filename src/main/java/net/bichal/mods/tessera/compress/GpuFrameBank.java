@@ -2,6 +2,7 @@ package net.bichal.mods.tessera.compress;
 
 import net.bichal.mods.tessera.compat.TesseraCompat;
 import net.bichal.mods.tessera.compress.gpu.GpuCapabilities;
+import net.bichal.mods.tessera.vram.VramBudgetEngine;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
@@ -25,8 +26,10 @@ import java.util.Map;
  * buffer once it is made (a better encode replaces it with a new one), so a buffer always holds the
  * same blocks. A frame is put in the bank the first time it is drawn, in pages of
  * {@value #PAGE_SIZE}x{@value #PAGE_SIZE} texels of the atlas's own format, filled shelf by shelf.
- * When the pages reach {@link #MAX_BYTES}, the bank starts over (whatever is in the atlas already
- * stays there); a bank that keeps filling up is more uploads, not fewer, and turns itself off.
+ * When the pages reach {@link #MAX_BYTES}, or one more page would take Tessera past its VRAM budget
+ * (the atlases count first), the bank starts over with the pages it has (whatever is in the atlas
+ * already stays there); a bank that keeps filling up is more uploads, not fewer, and turns itself
+ * off, as does one the budget leaves no page at all.
  *
  * <p>Render thread only. Regions must be whole 4x4 blocks, which the copy requires.
  */
@@ -131,12 +134,18 @@ final class GpuFrameBank {
         if (position != null) {
             return position;
         }
-        if (pages.size() * pageBytes + pageBytes <= MAX_BYTES) {
+        boolean budget = VramBudgetEngine.withinBudget(totalBytes + pageBytes);
+        if (pages.size() * pageBytes + pageBytes <= MAX_BYTES && budget) {
             int id = GL11.glGenTextures();
             TesseraCompat.bindTexture(id);
             GL42C.glTexStorage2D(GL11.GL_TEXTURE_2D, 1, target.glFormat(), PAGE_SIZE, PAGE_SIZE);
             pages.add(id);
             totalBytes += pageBytes;
+        } else if (pages.isEmpty()) {
+            LOGGER.info("Frame bank for {} turned off: the {} MB VRAM budget has no room for it", atlasName,
+                    VramBudgetEngine.getEffectiveBudgetMb());
+            disabled = true;
+            return null;
         } else if (++restarts > MAX_RESTARTS) {
             LOGGER.info("Frame bank for {} turned off: its frames do not fit in {} MB", atlasName,
                     MAX_BYTES >> 20);

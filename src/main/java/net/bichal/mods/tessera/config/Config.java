@@ -12,6 +12,7 @@ public final class Config {
     public static final Setting<Integer> COMPRESSION_QUALITY;
     public static final Setting<Integer> DEDUP_SIMILARITY_THRESHOLD;
     public static final Setting<Integer> VRAM_BUDGET_TARGET_MB;
+    public static final Setting<Boolean> VRAM_BUDGET_AUTO;
     public static final Setting<String> CACHE_DIRECTORY;
     public static final Setting<Boolean> DISABLE_NATIVE_COMPRESSION;
     public static final Setting<Boolean> COMPRESS_ANIMATED_ATLASES;
@@ -34,7 +35,9 @@ public final class Config {
         DEDUP_SIMILARITY_THRESHOLD = FabricConfig.integer("deduplication.dedupSimilarityThreshold", 6, 0, 64,
                 "Maximum Hamming distance, 0 to 64, between two 64-bit pHash fingerprints for sprites to count as duplicates.");
         VRAM_BUDGET_TARGET_MB = FabricConfig.integer("vramBudget.vramBudgetTargetMb", 2048, 256, 16384,
-                "Advisory VRAM target in megabytes for the compressed atlas; over it only logs a warning.");
+                "VRAM in megabytes Tessera may use for compressed atlases and the animation frame bank. The frame bank only grows within it; an atlas is still compressed above it (vanilla RGBA would take more), with a warning.");
+        VRAM_BUDGET_AUTO = FabricConfig.bool("vramBudget.vramBudgetAuto", false,
+                "Sets the budget from the GPU instead: three quarters of its dedicated VRAM (NVIDIA) or of the free VRAM at startup (AMD). Where the driver does not say, vramBudgetTargetMb is used.");
         CACHE_DIRECTORY = FabricConfig.string("cache.cacheDirectory", "tessera-cache",
                 "Cache directory for compressed atlas data, relative to the game directory.");
         SHOW_EXTENDED_DEBUG_BREAKDOWN = FabricConfig.bool("debug.showExtendedDebugBreakdown", false,
@@ -111,14 +114,20 @@ public final class Config {
 
         VRAM_BUDGET_TARGET_MB = wrap(builder
                 .comment(
-                        "Advisory VRAM target in megabytes for the compressed atlas. Evaluated once per",
-                        "resource-pack or mod-list reload, not polled continuously at runtime.",
-                        "BC1/BC7 are both fixed bits-per-pixel formats, so this cannot be enforced by",
-                        "lowering compressionQuality -- an atlas over this budget is logged as a warning",
-                        "only; lower dedupSimilarityThreshold or accept the overage."
+                        "VRAM in megabytes Tessera may use for compressed atlases and the animation frame bank.",
+                        "The frame bank only grows within it. An atlas is still compressed above it, with a",
+                        "warning: BC1/BC7 are fixed-rate formats, and leaving it vanilla RGBA would take more."
                 )
                 .translation("tessera.configuration.vramBudgetTargetMb")
                 .defineInRange("vramBudgetTargetMb", 2048, 256, 16384));
+
+        VRAM_BUDGET_AUTO = wrap(builder
+                .comment(
+                        "Sets the budget from the GPU instead: three quarters of its dedicated VRAM (NVIDIA) or of",
+                        "the free VRAM at startup (AMD). Where the driver does not say, vramBudgetTargetMb is used."
+                )
+                .translation("tessera.configuration.vramBudgetAuto")
+                .define("vramBudgetAuto", false));
 
         builder.pop();
 
@@ -154,12 +163,13 @@ public final class Config {
     public record ReloadSensitiveSnapshot(String cacheDirectory, int compressionQuality, boolean disableNativeCompression,
                                           boolean compressAnimatedAtlases, boolean gpuCompression,
                                           boolean compressGuiAtlas,
-                                          int dedupSimilarityThreshold, int vramBudgetTargetMb) {
+                                          int dedupSimilarityThreshold, int vramBudgetTargetMb,
+                                          boolean vramBudgetAuto) {
         public static ReloadSensitiveSnapshot capture() {
             return new ReloadSensitiveSnapshot(get(CACHE_DIRECTORY), get(COMPRESSION_QUALITY),
                     get(DISABLE_NATIVE_COMPRESSION), get(COMPRESS_ANIMATED_ATLASES), get(GPU_COMPRESSION),
                     get(COMPRESS_GUI_ATLAS),
-                    get(DEDUP_SIMILARITY_THRESHOLD), get(VRAM_BUDGET_TARGET_MB));
+                    get(DEDUP_SIMILARITY_THRESHOLD), get(VRAM_BUDGET_TARGET_MB), get(VRAM_BUDGET_AUTO));
         }
     }
 
