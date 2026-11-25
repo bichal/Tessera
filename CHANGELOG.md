@@ -92,6 +92,9 @@ grouped as Added, Changed, Deprecated, Removed, Fixed and Security. Versions fol
 
 ### Changed
 
+- Needs Celeris 0.3.2 or newer. 0.3.1.1 was built with JNI names Java cannot link, so its native zstd never loaded:
+  the disk cache fell back to deflate, could not read entries written with zstd and encoded those atlases again.
+  0.3.2 also lets the atlas work share Celeris's workers with other mods' runs instead of doing it alone.
 - Atlas fingerprinting and assembly write each padded sprite row with one bulk copy instead of a store per texel, and
   fold the row's alpha with two integer ops per texel. That code runs once per reload, mostly before the JIT compiles
   it, where the per-texel stores took 8 s of worker time over one reload in a profile. Output is unchanged.
