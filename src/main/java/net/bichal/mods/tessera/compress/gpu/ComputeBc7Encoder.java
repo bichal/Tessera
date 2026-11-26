@@ -70,15 +70,7 @@ public final class ComputeBc7Encoder implements GpuBc7Encoder {
             GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, blocks);
             GL15.glBufferData(GL43.GL_SHADER_STORAGE_BUFFER, (long) blockCount * 16, GL15.GL_STREAM_READ);
 
-            GL20.glUseProgram(program);
-            GL30.glUniform1ui(uWidth, width);
-            GL30.glUniform1ui(uHeight, height);
-            GL30.glUniform1ui(uBlocksX, blocksX);
-            GL30.glUniform1ui(uBlockCount, blockCount);
-            GL30.glUniform1ui(uFlags, 1);
-            GL30.glUniform1ui(uCandidates, qualityPreset <= 1 ? 1 : (qualityPreset <= 4 ? 3 : 8));
-            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 0, source);
-            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, blocks);
+            bindPass(width, height, blocksX, blockCount, candidatesFor(qualityPreset), source, blocks);
             for (int offset = 0; offset < blockCount; offset += BLOCKS_PER_DISPATCH) {
                 int count = Math.min(BLOCKS_PER_DISPATCH, blockCount - offset);
                 GL30.glUniform1ui(uBlockOffset, offset);
@@ -108,7 +100,7 @@ public final class ComputeBc7Encoder implements GpuBc7Encoder {
         }
         ensureProgram();
         return new SlicedJob(rgba8.slice(rgba8.position(), width * height * 4), width, height,
-                qualityPreset <= 1 ? 1 : (qualityPreset <= 4 ? 3 : 8));
+                candidatesFor(qualityPreset));
     }
 
     private final class SlicedJob implements Job {
@@ -167,15 +159,7 @@ public final class ComputeBc7Encoder implements GpuBc7Encoder {
                     back += (int) slice[2];
                 }
                 if (next < blockCount && inFlight.size() < SLICES_IN_FLIGHT) {
-                    GL20.glUseProgram(program);
-                    GL30.glUniform1ui(uWidth, width);
-                    GL30.glUniform1ui(uHeight, height);
-                    GL30.glUniform1ui(uBlocksX, blocksX);
-                    GL30.glUniform1ui(uBlockCount, blockCount);
-                    GL30.glUniform1ui(uFlags, 1);
-                    GL30.glUniform1ui(uCandidates, candidates);
-                    GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 0, source);
-                    GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, blocks);
+                    bindPass(width, height, blocksX, blockCount, candidates, source, blocks);
                     while (next < blockCount && inFlight.size() < SLICES_IN_FLIGHT) {
                         int count = Math.min(BLOCKS_PER_DISPATCH, blockCount - next);
                         // The texel rows this slice reads that are not up yet (bands never overlap).
@@ -229,6 +213,24 @@ public final class ComputeBc7Encoder implements GpuBc7Encoder {
                 blocks = 0;
             }
         }
+    }
+
+    /** Endpoint candidates the shader tries per block for a quality preset. */
+    private static int candidatesFor(int qualityPreset) {
+        return qualityPreset <= 1 ? 1 : (qualityPreset <= 4 ? 3 : 8);
+    }
+
+    /** Binds the program, its uniforms and both buffers for a run of dispatches. */
+    private void bindPass(int width, int height, int blocksX, int blockCount, int candidates, int source, int blocks) {
+        GL20.glUseProgram(program);
+        GL30.glUniform1ui(uWidth, width);
+        GL30.glUniform1ui(uHeight, height);
+        GL30.glUniform1ui(uBlocksX, blocksX);
+        GL30.glUniform1ui(uBlockCount, blockCount);
+        GL30.glUniform1ui(uFlags, 1);
+        GL30.glUniform1ui(uCandidates, candidates);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 0, source);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, blocks);
     }
 
     /** Releases the program; the next encode compiles it again. Render thread. */

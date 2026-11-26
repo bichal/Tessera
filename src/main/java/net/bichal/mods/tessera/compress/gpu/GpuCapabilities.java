@@ -1,6 +1,6 @@
 package net.bichal.mods.tessera.compress.gpu;
 
-import net.bichal.mods.tessera.compress.Bc7GpuSupport;
+import net.bichal.mods.tessera.compress.GpuTextureSupport;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 
@@ -35,7 +35,7 @@ public record GpuCapabilities(boolean supported, String reason, String renderer)
                 result = new GpuCapabilities(false, "no shader storage buffers", renderer);
             } else if (!(caps.OpenGL43 || caps.GL_ARB_copy_image)) {
                 result = new GpuCapabilities(false, "no glCopyImageSubData", renderer);
-            } else if (!Bc7GpuSupport.isSupported()) {
+            } else if (!GpuTextureSupport.BC7.isSupported()) {
                 result = new GpuCapabilities(false, "the driver has no BC7", renderer);
             } else {
                 result = new GpuCapabilities(true, "", renderer);

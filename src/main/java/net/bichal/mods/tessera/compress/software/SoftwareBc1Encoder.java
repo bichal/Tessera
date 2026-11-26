@@ -1,7 +1,6 @@
 package net.bichal.mods.tessera.compress.software;
 
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 
 /**
  * Pure-Java BC1 (DXT1) block encoder. This is the "lowest level possible"
@@ -25,20 +24,8 @@ public final class SoftwareBc1Encoder {
     }
 
     public static ByteBuffer encode(ByteBuffer rgba8, int width, int height) {
-        int blocksX = BlockMath.blocksAcross(width);
-        int blocksY = BlockMath.blocksAcross(height);
-        // Direct: uploaded via glCompressedTexImage2D without an extra copy.
-        ByteBuffer out = ByteBuffer.allocateDirect(blocksX * blocksY * BYTES_PER_BLOCK).order(ByteOrder.LITTLE_ENDIAN);
-
         int[] block = new int[BlockMath.BLOCK_TEXELS * 4];
-        for (int by = 0; by < blocksY; by++) {
-            for (int bx = 0; bx < blocksX; bx++) {
-                BlockMath.readBlock(rgba8, width, height, bx, by, block);
-                encodeBlock(block, out);
-            }
-        }
-        out.flip();
-        return out;
+        return BlockMath.encodeBlocks(rgba8, width, height, BYTES_PER_BLOCK, block, out -> encodeBlock(block, out));
     }
 
     private static void encodeBlock(int[] block, ByteBuffer out) {
@@ -54,8 +41,8 @@ public final class SoftwareBc1Encoder {
             maxB = Math.max(maxB, b);
         }
 
-        int c0_565 = pack565(maxR, maxG, maxB);
-        int c1_565 = pack565(minR, minG, minB);
+        int c0_565 = BlockMath.pack565(maxR, maxG, maxB);
+        int c1_565 = BlockMath.pack565(minR, minG, minB);
         // BC1 4-color mode requires c0 > c1 as packed uint16 -- our bucket
         // is the opaque one, so we always want 4-color mode, never the
         // 3-color + punch-through-alpha mode a tie here would otherwise
@@ -78,8 +65,8 @@ public final class SoftwareBc1Encoder {
         }
 
         // Unpacked into locals: no per-block array allocation.
-        int c0r = expandR(c0_565), c0g = expandG(c0_565), c0b = expandB(c0_565);
-        int c1r = expandR(c1_565), c1g = expandG(c1_565), c1b = expandB(c1_565);
+        int c0r = BlockMath.expandR(c0_565), c0g = BlockMath.expandG(c0_565), c0b = BlockMath.expandB(c0_565);
+        int c1r = BlockMath.expandR(c1_565), c1g = BlockMath.expandG(c1_565), c1b = BlockMath.expandB(c1_565);
         // Palette colors 2/3 are computed in the *expanded* 8-bit domain,
         // matching what every BC1 hardware decoder does -- an encoder that
         // instead lerps in 5/6-bit space before expanding would pick
@@ -114,24 +101,5 @@ public final class SoftwareBc1Encoder {
         out.putShort((short) c0_565);
         out.putShort((short) c1_565);
         out.putInt(indices);
-    }
-
-    private static int pack565(int r, int g, int b) {
-        int r5 = BlockMath.quantizeTo(r, 5);
-        int g6 = BlockMath.quantizeTo(g, 6);
-        int b5 = BlockMath.quantizeTo(b, 5);
-        return (r5 << 11) | (g6 << 5) | b5;
-    }
-
-    private static int expandR(int packed) {
-        return BlockMath.expandFrom((packed >>> 11) & 0x1F, 5);
-    }
-
-    private static int expandG(int packed) {
-        return BlockMath.expandFrom((packed >>> 5) & 0x3F, 6);
-    }
-
-    private static int expandB(int packed) {
-        return BlockMath.expandFrom(packed & 0x1F, 5);
     }
 }

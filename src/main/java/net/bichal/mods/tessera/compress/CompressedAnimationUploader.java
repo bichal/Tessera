@@ -408,15 +408,7 @@ public final class CompressedAnimationUploader {
             int frameLevels = Math.min(levels, images.length - 1);
             int[][] pixels = new int[frameLevels + 1][];
             int[] widths = new int[frameLevels + 1];
-            for (int level = 0; level <= frameLevels; level++) {
-                NativeImage image = images[level];
-                int iw = image.getWidth();
-                int ih = image.getHeight();
-                int[] copy = new int[iw * ih];
-                TesseraCompat.imageAbgr(image, copy);
-                pixels[level] = copy;
-                widths[level] = iw;
-            }
+            copyLevels(images, 0, frameLevels, pixels, widths);
             Object animation = stateBySprite.get(contents);
             AnimationReader.Timeline timeline = TesseraCompat.GPU_ANIMATION
                     ? (animation != null && AnimationReader.AVAILABLE ? AnimationReader.timeline(animation) : null)
@@ -560,6 +552,30 @@ public final class CompressedAnimationUploader {
      * One sprite's keyframes (by sprite and frame) and up to {@code blendQuota} blended frames (by
      * content, repeats within the sprite dropped). Reads only the sprite's own snapshot: safe on any thread.
      */
+    /** Levels 0.. whose padded region is still whole 4x4 blocks (at most {@code frameLevels} + 1). */
+    private static int blockAlignedLevels(int width, int height, int frameLevels) {
+        int level = 0;
+        while (level <= frameLevels) {
+            int rw = width >> level, rh = height >> level;
+            if (rw < 1 || rh < 1 || ((rw | rh) & 3) != 0) {
+                break;
+            }
+            level++;
+        }
+        return level;
+    }
+
+    /** Copies mip levels {@code from..to} of a sprite into ABGR arrays, with each level's width. */
+    private static void copyLevels(NativeImage[] images, int from, int to, int[][] pixels, int[] widths) {
+        for (int level = from; level <= to; level++) {
+            NativeImage image = images[level];
+            int[] copy = new int[image.getWidth() * image.getHeight()];
+            TesseraCompat.imageAbgr(image, copy);
+            pixels[level] = copy;
+            widths[level] = image.getWidth();
+        }
+    }
+
     private static SpriteRegions collectRegions(SpriteSnapshot sprite, CompressionPipeline.Target target,
                                                 int levels, int blendQuota) {
         List<List<PrecodeRegion>> keyframes = new ArrayList<>();
@@ -575,6 +591,7 @@ public final class CompressedAnimationUploader {
         int w = sprite.width();
         int h = sprite.height();
         int padding = sprite.padding();
+        int alignedLevels = blockAlignedLevels(w + 2 * padding, h + 2 * padding, sprite.frameLevels());
         int keyframeCount = 0;
         for (int frame : sprite.uniqueFrames()) {
             int column = frame % sprite.columns();
@@ -591,12 +608,9 @@ public final class CompressedAnimationUploader {
                 key = ((long) frameX << 32) | (frameY & 0xFFFFFFFFL);
                 pixels = (level, px, py) -> source.abgr(level, (frameX >> level) + px, (frameY >> level) + py);
             }
-            for (int level = 0; level <= sprite.frameLevels(); level++) {
+            for (int level = 0; level < alignedLevels; level++) {
                 int rw = (w + 2 * padding) >> level;
                 int rh = (h + 2 * padding) >> level;
-                if (rw < 1 || rh < 1 || ((rw | rh) & 3) != 0) {
-                    break;
-                }
                 keyframes.get(level).add(new PrecodeRegion(sprite.owner(), key, sprite.frameLevels(),
                         newFrameRgba(pixels, level, rw, rh), rw, rh));
             }
@@ -629,12 +643,9 @@ public final class CompressedAnimationUploader {
                 } else {
                     pixels = legacyBlendPixels(source, w, h, current, next, timeline.rowSize(), subFrame, time);
                 }
-                for (int level = 0; level <= sprite.frameLevels(); level++) {
+                for (int level = 0; level < alignedLevels; level++) {
                     int rw = (w + 2 * padding) >> level;
                     int rh = (h + 2 * padding) >> level;
-                    if (rw < 1 || rh < 1 || ((rw | rh) & 3) != 0) {
-                        break;
-                    }
                     ByteBuffer rgba = newFrameRgba(pixels, level, rw, rh);
                     long hash = contentHash(rgba, rw, rh, target);
                     if (blend != 0L) {
@@ -1223,15 +1234,7 @@ public final class CompressedAnimationUploader {
             int top = Math.min(maxLevel, images.length - 1);
             int[][] pixels = new int[top + 1][];
             int[] widths = new int[top + 1];
-            for (int level = alignedLevel + 1; level <= top; level++) {
-                NativeImage image = images[level];
-                int iw = image.getWidth();
-                int ih = image.getHeight();
-                int[] copy = new int[iw * ih];
-                TesseraCompat.imageAbgr(image, copy);
-                pixels[level] = copy;
-                widths[level] = iw;
-            }
+            copyLevels(images, alignedLevel + 1, top, pixels, widths);
             sources.put(contents, (level, x, y) -> pixels[level][y * widths[level] + x]);
         }
         return sources;

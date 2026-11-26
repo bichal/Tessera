@@ -7,9 +7,7 @@ import net.bichal.mods.tessera.compress.CompressedAnimationUploader;
 import net.bichal.mods.tessera.compress.CompressedAnimationUploader.EncodeStats;
 import net.bichal.mods.tessera.compress.CompressedAtlases;
 import net.bichal.mods.tessera.atlas.AtlasFormats;
-import net.bichal.mods.tessera.compress.AstcGpuSupport;
-import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
-import net.bichal.mods.tessera.compress.Bc7GpuSupport;
+import net.bichal.mods.tessera.compress.GpuTextureSupport;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.bichal.mods.tessera.compress.gpu.GpuCompression;
 import net.minecraft.client.Minecraft;
@@ -282,8 +280,8 @@ public final class TesseraSelfTest {
 
     private static boolean check(List<String> out) {
         out.add("renderer " + GL11.glGetString(GL11.GL_RENDERER) + ", " + GL11.glGetString(GL11.GL_VERSION));
-        out.add("GPU formats: BC1 " + Bc1TextureFormatSupport.isSupported() + ", BC7 " + Bc7GpuSupport.isSupported()
-                + ", ASTC " + AstcGpuSupport.isSupported());
+        out.add("GPU formats: BC1 " + GpuTextureSupport.BC1.isSupported() + ", BC7 " + GpuTextureSupport.BC7.isSupported()
+                + ", ASTC " + GpuTextureSupport.ASTC.isSupported());
         out.add("GPU compression: " + GpuCompression.status().state() + " " + GpuCompression.status().detail()
                 + "; images encoded on the GPU: " + net.bichal.mods.tessera.compress.gpu.GpuDispatch.encoded()
                 + ", sent back to the CPU by the spot check: " + net.bichal.mods.tessera.compress.gpu.GpuDispatch.rejected());

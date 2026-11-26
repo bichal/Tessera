@@ -2,9 +2,7 @@ package net.bichal.mods.tessera;
 
 import net.bichal.mods.tessera.atlas.AtlasCompressionDriver;
 import net.bichal.mods.tessera.compat.ModCompat;
-import net.bichal.mods.tessera.compress.Bc1TextureFormatSupport;
-import net.bichal.mods.tessera.compress.AstcGpuSupport;
-import net.bichal.mods.tessera.compress.Bc7GpuSupport;
+import net.bichal.mods.tessera.compress.GpuTextureSupport;
 import net.bichal.mods.tessera.compress.backend.TesseraRuntime;
 import net.bichal.mods.tessera.compress.gpu.GpuCompression;
 import net.bichal.mods.tessera.config.Config;
@@ -64,20 +62,20 @@ public final class Tessera {
      * background compression threads that have none.
      */
     public static void warmUpGl() {
-        boolean bc7Supported = Bc7GpuSupport.isSupported();
-        Bc1TextureFormatSupport.warmUp();
-        AstcGpuSupport.warmUp();
+        boolean bc7Supported = GpuTextureSupport.BC7.isSupported();
+        GpuTextureSupport.BC1.warmUp();
+        GpuTextureSupport.ASTC.warmUp();
         VramBudgetEngine.warmUp();
 
-        if (Bc7GpuSupport.isKnown() && !bc7Supported) {
+        if (GpuTextureSupport.BC7.isKnown() && !bc7Supported) {
             LOGGER.info("This GPU/driver does not expose GL_COMPRESSED_RGBA_BPTC_UNORM (BC7); "
                     + "Tessera uses ASTC for atlases with transparency where the driver has it.");
         }
-        if (Bc1TextureFormatSupport.isKnown() && !Bc1TextureFormatSupport.isSupported()) {
+        if (GpuTextureSupport.BC1.isKnown() && !GpuTextureSupport.BC1.isSupported()) {
             LOGGER.info("This GPU/driver does not expose GL_EXT_texture_compression_s3tc (BC1).");
         }
         LOGGER.info("GPU texture compression: BC1 {}, BC7 {}, ASTC {}",
-                Bc1TextureFormatSupport.isSupported(), bc7Supported, AstcGpuSupport.isSupported());
+                GpuTextureSupport.BC1.isSupported(), bc7Supported, GpuTextureSupport.ASTC.isSupported());
         GpuCompression.refresh();
     }
 

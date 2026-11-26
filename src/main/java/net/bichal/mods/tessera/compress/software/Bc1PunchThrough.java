@@ -136,8 +136,8 @@ public final class Bc1PunchThrough {
     }
 
     private static void palette(int c0, int c1, int[] palette) {
-        int r0 = expandR(c0), g0 = expandG(c0), b0 = expandB(c0);
-        int r1 = expandR(c1), g1 = expandG(c1), b1 = expandB(c1);
+        int r0 = BlockMath.expandR(c0), g0 = BlockMath.expandG(c0), b0 = BlockMath.expandB(c0);
+        int r1 = BlockMath.expandR(c1), g1 = BlockMath.expandG(c1), b1 = BlockMath.expandB(c1);
         palette[0] = r0;
         palette[1] = g0;
         palette[2] = b0;
@@ -162,26 +162,11 @@ public final class Bc1PunchThrough {
     }
 
     private static int pack565(double r, double g, double b) {
-        int r5 = BlockMath.quantizeTo(clamp(r), 5);
-        int g6 = BlockMath.quantizeTo(clamp(g), 6);
-        int b5 = BlockMath.quantizeTo(clamp(b), 5);
-        return (r5 << 11) | (g6 << 5) | b5;
+        return BlockMath.pack565(clamp(r), clamp(g), clamp(b));
     }
 
     private static int clamp(double value) {
         return (int) Math.max(0, Math.min(255, Math.round(value)));
-    }
-
-    private static int expandR(int packed) {
-        return BlockMath.expandFrom((packed >>> 11) & 0x1F, 5);
-    }
-
-    private static int expandG(int packed) {
-        return BlockMath.expandFrom((packed >>> 5) & 0x3F, 6);
-    }
-
-    private static int expandB(int packed) {
-        return BlockMath.expandFrom(packed & 0x1F, 5);
     }
 
     /** Endpoint fit of one block over its visible texels, in 4-colour or 3-colour (+ transparent) mode. */

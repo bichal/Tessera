@@ -1,6 +1,7 @@
 package net.bichal.mods.tessera.compress.software;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 /**
  * Shared 4x4-block helpers for {@link SoftwareBc1Encoder} and
@@ -29,14 +30,20 @@ final class BlockMath {
      *            of texel {@code i}, row-major within the block.
      */
     static void readBlock(ByteBuffer rgba8, int width, int height, int blockX, int blockY, int[] out) {
-        int baseX = blockX * BLOCK_DIM;
-        int baseY = blockY * BLOCK_DIM;
-        for (int y = 0; y < BLOCK_DIM; y++) {
+        readBlock(rgba8, 0, width, height, blockX, blockY, BLOCK_DIM, BLOCK_DIM, out);
+    }
+
+    /** A {@code blockWidth x blockHeight} block of an RGBA8 image at {@code base}, edges clamped. */
+    static void readBlock(ByteBuffer rgba8, int base, int width, int height, int blockX, int blockY,
+                          int blockWidth, int blockHeight, int[] out) {
+        int baseX = blockX * blockWidth;
+        int baseY = blockY * blockHeight;
+        for (int y = 0; y < blockHeight; y++) {
             int srcY = Math.min(baseY + y, height - 1);
-            for (int x = 0; x < BLOCK_DIM; x++) {
+            for (int x = 0; x < blockWidth; x++) {
                 int srcX = Math.min(baseX + x, width - 1);
-                int srcOffset = (srcY * width + srcX) * 4;
-                int outOffset = (y * BLOCK_DIM + x) * 4;
+                int srcOffset = base + (srcY * width + srcX) * 4;
+                int outOffset = (y * blockWidth + x) * 4;
                 out[outOffset] = rgba8.get(srcOffset) & 0xFF;
                 out[outOffset + 1] = rgba8.get(srcOffset + 1) & 0xFF;
                 out[outOffset + 2] = rgba8.get(srcOffset + 2) & 0xFF;
@@ -73,4 +80,48 @@ final class BlockMath {
     static int expandFrom(int valueBits, int bits) {
         return (valueBits << (8 - bits)) | (valueBits >>> (2 * bits - 8));
     }
+
+    /** RGB565 of an 8-bit colour. */
+    static int pack565(int r, int g, int b) {
+        return (quantizeTo(r, 5) << 11) | (quantizeTo(g, 6) << 5) | quantizeTo(b, 5);
+    }
+
+    static int expandR(int packed565) {
+        return expandFrom((packed565 >>> 11) & 0x1F, 5);
+    }
+
+    static int expandG(int packed565) {
+        return expandFrom((packed565 >>> 5) & 0x3F, 6);
+    }
+
+    static int expandB(int packed565) {
+        return expandFrom(packed565 & 0x1F, 5);
+    }
+
+
+    /** Writes one encoded block for the texels just read into the encoder's block array. */
+    @FunctionalInterface
+    interface BlockWriter {
+        void write(ByteBuffer out);
+    }
+
+    /**
+     * Reads every 4x4 block of the image into {@code block}, row by row, and lets {@code writer}
+     * append its encoding. The result is direct and little-endian, ready for glCompressedTex(Sub)Image2D.
+     */
+    static ByteBuffer encodeBlocks(ByteBuffer rgba8, int width, int height, int bytesPerBlock, int[] block,
+                                   BlockWriter writer) {
+        int blocksX = blocksAcross(width);
+        int blocksY = blocksAcross(height);
+        ByteBuffer out = ByteBuffer.allocateDirect(blocksX * blocksY * bytesPerBlock).order(ByteOrder.LITTLE_ENDIAN);
+        for (int by = 0; by < blocksY; by++) {
+            for (int bx = 0; bx < blocksX; bx++) {
+                readBlock(rgba8, width, height, bx, by, block);
+                writer.write(out);
+            }
+        }
+        out.flip();
+        return out;
+    }
+
 }

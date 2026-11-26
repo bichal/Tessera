@@ -1,7 +1,6 @@
 package net.bichal.mods.tessera.compress.software;
 
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 
 /**
  * Pure-Java BC7 block encoder: the fallback when the native encoder is not
@@ -30,9 +29,9 @@ public final class SoftwareBc7Encoder {
 
     // BC7 interpolation weights (out of 64) for 2-, 3- and 4-bit indices: every
     // decoder reconstructs round(((64 - w) * e0 + w * e1) / 64) against these.
-    private static final int[] W2 = {0, 21, 43, 64};
-    private static final int[] W3 = {0, 9, 18, 27, 37, 46, 55, 64};
-    private static final int[] W4 = {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64};
+    static final int[] W2 = {0, 21, 43, 64};
+    static final int[] W3 = {0, 9, 18, 27, 37, 46, 55, 64};
+    static final int[] W4 = {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64};
 
     /** Error weight of a texel's colour when visible, and when fully transparent; alpha always counts as visible. */
     private static final int VISIBLE = 16, HIDDEN = 1;
@@ -59,22 +58,12 @@ public final class SoftwareBc7Encoder {
     }
 
     public static ByteBuffer encode(ByteBuffer rgba8, int width, int height) {
-        int blocksX = BlockMath.blocksAcross(width);
-        int blocksY = BlockMath.blocksAcross(height);
-        // Direct + little-endian: goes straight to glCompressedTex(Sub)Image2D, each
-        // 128-bit block written as two putLong calls.
-        ByteBuffer out = ByteBuffer.allocateDirect(blocksX * blocksY * BYTES_PER_BLOCK).order(ByteOrder.LITTLE_ENDIAN);
         Encoder encoder = new Encoder();
-        for (int by = 0; by < blocksY; by++) {
-            for (int bx = 0; bx < blocksX; bx++) {
-                BlockMath.readBlock(rgba8, width, height, bx, by, encoder.block);
-                encoder.encodeBlock();
-                out.putLong(encoder.bits[0]);
-                out.putLong(encoder.bits[1]);
-            }
-        }
-        out.flip();
-        return out;
+        return BlockMath.encodeBlocks(rgba8, width, height, BYTES_PER_BLOCK, encoder.block, out -> {
+            encoder.encodeBlock();
+            out.putLong(encoder.bits[0]);
+            out.putLong(encoder.bits[1]);
+        });
     }
 
     /** Scratch for one {@link #encode} call (callers run on several threads), reused for every block. */
@@ -133,23 +122,7 @@ public final class SoftwareBc7Encoder {
 
         private long encodeMode6(long[] out) {
             long error = fit(0, 4, W4, 7, true);
-            int[] e0 = best0, e1 = best1;
-            int[] indices = bestIdx;
-            if (indices[0] >= 8) { // anchor index stores 3 bits: swap ends, flip indices
-                e0 = best1;
-                e1 = best0;
-                flip(indices, 15);
-            }
-            out[0] = 0L;
-            out[1] = 0L;
-            int pos = put(out, 0, 1 << 6, 7);
-            for (int c = 0; c < 4; c++) {
-                pos = put(out, pos, e0[c], 7);
-                pos = put(out, pos, e1[c], 7);
-            }
-            pos = put(out, pos, e0[4], 1);
-            pos = put(out, pos, e1[4], 1);
-            pos = putIndices(out, pos, indices, 4);
+            packMode6(out, best0, best1, bestIdx);
             return error;
         }
 
@@ -157,18 +130,7 @@ public final class SoftwareBc7Encoder {
 
         private long encodeMode5(long[] out) {
             long error = fitColourAndAlpha(W2, 7, W2, 8);
-            out[0] = 0L;
-            out[1] = 0L;
-            int pos = put(out, 0, 1 << 5, 6);
-            pos = put(out, pos, 0, 2); // rotation
-            for (int c = 0; c < 3; c++) {
-                pos = put(out, pos, colour0[c], 7);
-                pos = put(out, pos, colour1[c], 7);
-            }
-            pos = put(out, pos, alpha0, 8);
-            pos = put(out, pos, alpha1, 8);
-            pos = putIndices(out, pos, colourIdx, 2);
-            putIndices(out, pos, alphaIdx, 2);
+            packMode45(out, 5, 0, colour0, colour1, alpha0, alpha1, colourIdx, alphaIdx, 7, 8, 2, 2);
             return error;
         }
 
@@ -176,19 +138,7 @@ public final class SoftwareBc7Encoder {
 
         private long encodeMode4(long[] out) {
             long error = fitColourAndAlpha(W3, 5, W2, 6);
-            out[0] = 0L;
-            out[1] = 0L;
-            int pos = put(out, 0, 1 << 4, 5);
-            pos = put(out, pos, 0, 2); // rotation
-            pos = put(out, pos, 1, 1); // index selection: colour takes the 3-bit indices
-            for (int c = 0; c < 3; c++) {
-                pos = put(out, pos, colour0[c], 5);
-                pos = put(out, pos, colour1[c], 5);
-            }
-            pos = put(out, pos, alpha0, 6);
-            pos = put(out, pos, alpha1, 6);
-            pos = putIndices(out, pos, alphaIdx, 2);  // first index section: 2-bit
-            putIndices(out, pos, colourIdx, 3);       // second index section: 3-bit
+            packMode45(out, 4, 1, colour0, colour1, alpha0, alpha1, colourIdx, alphaIdx, 5, 6, 3, 2);
             return error;
         }
 
@@ -414,76 +364,125 @@ public final class SoftwareBc7Encoder {
             return any;
         }
 
-        /**
-         * Stored value per channel ({@code stored[c]}) and its 8-bit reconstruction
-         * ({@code rec[c]}). Mode 6: 7 bits plus one p-bit shared by the endpoint's
-         * channels, picked for the smaller error.
-         */
-        private static void quantize(float[] e, int[] stored, int[] rec, int count, int bits, boolean mode6) {
-            if (mode6) {
-                float bestError = Float.MAX_VALUE;
-                for (int p = 0; p <= 1; p++) {
-                    float error = 0;
-                    for (int c = 0; c < count; c++) {
-                        int v = Math.max(0, Math.min(127, Math.round((e[c] - p) / 2f)));
-                        float d = ((v << 1) | p) - e[c];
-                        error += d * d;
-                    }
-                    if (error < bestError) {
-                        bestError = error;
-                        for (int c = 0; c < count; c++) {
-                            int v = Math.max(0, Math.min(127, Math.round((e[c] - p) / 2f)));
-                            stored[c] = v;
-                            rec[c] = (v << 1) | p;
-                        }
-                        stored[4] = p;
-                    }
-                }
-                return;
-            }
-            int max = (1 << bits) - 1;
-            for (int c = 0; c < count; c++) {
-                int base = (int) Math.floor(e[c] * max / 255f);
-                int bestV = 0;
-                float bestError = Float.MAX_VALUE;
-                for (int v = Math.max(0, base - 1); v <= Math.min(max, base + 2); v++) {
-                    float d = expand(v, bits) - e[c];
-                    if (d * d < bestError) {
-                        bestError = d * d;
-                        bestV = v;
-                    }
-                }
-                stored[c] = bestV;
-                rec[c] = expand(bestV, bits);
-            }
-        }
-
-        private static int expand(int v, int bits) {
-            return bits == 8 ? v : (v << (8 - bits)) | (v >>> (2 * bits - 8));
-        }
-
         private static float clamp255(float v) {
             return Math.max(0f, Math.min(255f, v));
         }
+    }
 
-        private static void flip(int[] indices, int top) {
-            for (int i = 0; i < TEXELS; i++) {
-                indices[i] = top - indices[i];
+    /**
+     * Stored value per channel ({@code stored[c]}) and its 8-bit reconstruction
+     * ({@code rec[c]}). Mode 6: 7 bits plus one p-bit shared by the endpoint's
+     * channels, picked for the smaller error.
+     */
+    static void quantize(float[] e, int[] stored, int[] rec, int count, int bits, boolean mode6) {
+        if (mode6) {
+            float bestError = Float.MAX_VALUE;
+            for (int p = 0; p <= 1; p++) {
+                float error = 0;
+                for (int c = 0; c < count; c++) {
+                    int v = Math.max(0, Math.min(127, Math.round((e[c] - p) / 2f)));
+                    float d = ((v << 1) | p) - e[c];
+                    error += d * d;
+                }
+                if (error < bestError) {
+                    bestError = error;
+                    for (int c = 0; c < count; c++) {
+                        int v = Math.max(0, Math.min(127, Math.round((e[c] - p) / 2f)));
+                        stored[c] = v;
+                        rec[c] = (v << 1) | p;
+                    }
+                    stored[4] = p;
+                }
             }
+            return;
         }
-
-        /** The 16 indices, the first (anchor) one bit shorter: its top bit is implied 0. */
-        private static int putIndices(long[] out, int pos, int[] indices, int bits) {
-            pos = put(out, pos, indices[0], bits - 1);
-            for (int i = 1; i < TEXELS; i++) {
-                pos = put(out, pos, indices[i], bits);
+        int max = (1 << bits) - 1;
+        for (int c = 0; c < count; c++) {
+            int base = (int) Math.floor(e[c] * max / 255f);
+            int bestV = 0;
+            float bestError = Float.MAX_VALUE;
+            for (int v = Math.max(0, base - 1); v <= Math.min(max, base + 2); v++) {
+                float d = expand(v, bits) - e[c];
+                if (d * d < bestError) {
+                    bestError = d * d;
+                    bestV = v;
+                }
             }
-            return pos;
+            stored[c] = bestV;
+            rec[c] = expand(bestV, bits);
+        }
+    }
+
+    static int expand(int v, int bits) {
+        return bits == 8 ? v : (v << (8 - bits)) | (v >>> (2 * bits - 8));
+    }
+
+    static void flip(int[] indices, int top) {
+        for (int i = 0; i < TEXELS; i++) {
+            indices[i] = top - indices[i];
+        }
+    }
+
+    /** The 16 indices, the first (anchor) one bit shorter: its top bit is implied 0. */
+    static int putIndices(long[] out, int pos, int[] indices, int bits) {
+        pos = put(out, pos, indices[0], bits - 1);
+        for (int i = 1; i < TEXELS; i++) {
+            pos = put(out, pos, indices[i], bits);
+        }
+        return pos;
+    }
+
+    /** Mode 6 block from endpoints (4 channels + p-bit each) and 4-bit indices; may flip {@code indices}. */
+    static void packMode6(long[] out, int[] e0, int[] e1, int[] indices) {
+        if (indices[0] >= 8) { // anchor index stores 3 bits: swap ends, flip indices
+            int[] t = e0;
+            e0 = e1;
+            e1 = t;
+            flip(indices, 15);
+        }
+        out[0] = 0L;
+        out[1] = 0L;
+        int pos = put(out, 0, 1 << 6, 7);
+        for (int c = 0; c < 4; c++) {
+            pos = put(out, pos, e0[c], 7);
+            pos = put(out, pos, e1[c], 7);
+        }
+        pos = put(out, pos, e0[4], 1);
+        pos = put(out, pos, e1[4], 1);
+        putIndices(out, pos, indices, 4);
+    }
+
+    /**
+     * Mode 4 or 5 block, no rotation, from endpoints whose anchor indices already have their top bit 0.
+     * {@code selection} 1 (mode 4 only) gives colour the 3-bit indices; the 2-bit set is written first.
+     */
+    static void packMode45(long[] out, int mode, int selection, int[] c0, int[] c1, int a0, int a1,
+                           int[] colourIdx, int[] alphaIdx, int colourBits, int alphaBits,
+                           int colourIndexBits, int alphaIndexBits) {
+        out[0] = 0L;
+        out[1] = 0L;
+        int pos = put(out, 0, 1 << mode, mode + 1);
+        pos = put(out, pos, 0, 2); // rotation
+        if (mode == 4) {
+            pos = put(out, pos, selection, 1);
+        }
+        for (int c = 0; c < 3; c++) {
+            pos = put(out, pos, c0[c], colourBits);
+            pos = put(out, pos, c1[c], colourBits);
+        }
+        pos = put(out, pos, a0, alphaBits);
+        pos = put(out, pos, a1, alphaBits);
+        if (selection == 0) {
+            pos = putIndices(out, pos, colourIdx, colourIndexBits);
+            putIndices(out, pos, alphaIdx, alphaIndexBits);
+        } else {
+            pos = putIndices(out, pos, alphaIdx, alphaIndexBits);
+            putIndices(out, pos, colourIdx, colourIndexBits);
         }
     }
 
     /** Appends {@code numBits} of {@code value} at bit {@code pos}; fields may straddle the 64-bit boundary. */
-    private static int put(long[] bits, int pos, int value, int numBits) {
+    static int put(long[] bits, int pos, int value, int numBits) {
         long v = value & ((1L << numBits) - 1);
         if (pos < 64) {
             bits[0] |= v << pos;

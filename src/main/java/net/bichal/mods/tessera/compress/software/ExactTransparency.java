@@ -3,6 +3,11 @@ package net.bichal.mods.tessera.compress.software;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+import static net.bichal.mods.tessera.compress.software.SoftwareBc7Encoder.W2;
+import static net.bichal.mods.tessera.compress.software.SoftwareBc7Encoder.W3;
+import static net.bichal.mods.tessera.compress.software.SoftwareBc7Encoder.W4;
+import static net.bichal.mods.tessera.compress.software.SoftwareBc7Encoder.flip;
+
 /**
  * Fully transparent texels that decode as exactly (0, 0, 0, 0), for atlases whose sprites are drawn
  * with blend modes that read the colour of transparent texels: the GUI's crosshair inverts what is
@@ -18,9 +23,6 @@ import java.nio.ByteOrder;
  */
 public final class ExactTransparency {
 
-    private static final int[] W2 = {0, 21, 43, 64};
-    private static final int[] W3 = {0, 9, 18, 27, 37, 46, 55, 64};
-    private static final int[] W4 = {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64};
     private static final int FIT_PASSES = 4;
 
     private ExactTransparency() {
@@ -165,7 +167,7 @@ public final class ExactTransparency {
             }
             long bestError = Long.MAX_VALUE;
             for (int pass = 0; pass < FIT_PASSES; pass++) {
-                quantize(e, count, bits, mode6);
+                SoftwareBc7Encoder.quantize(e, tryStored, rec, count, bits, mode6);
                 long error = 0;
                 for (int i = 0; i < 16; i++) {
                     if (hidden[i]) {
@@ -215,69 +217,11 @@ public final class ExactTransparency {
             return bestError;
         }
 
-        /** Stored values of the far endpoint into {@code tryStored}, its 8-bit values into {@code rec}. */
-        private void quantize(float[] e, int count, int bits, boolean mode6) {
-            if (mode6) {
-                float bestError = Float.MAX_VALUE;
-                for (int p = 0; p <= 1; p++) {
-                    float error = 0;
-                    for (int c = 0; c < count; c++) {
-                        int v = Math.max(0, Math.min(127, Math.round((e[c] - p) / 2f)));
-                        float d = ((v << 1) | p) - e[c];
-                        error += d * d;
-                    }
-                    if (error < bestError) {
-                        bestError = error;
-                        for (int c = 0; c < count; c++) {
-                            int v = Math.max(0, Math.min(127, Math.round((e[c] - p) / 2f)));
-                            tryStored[c] = v;
-                            rec[c] = (v << 1) | p;
-                        }
-                        tryStored[4] = p;
-                    }
-                }
-                return;
-            }
-            int max = (1 << bits) - 1;
-            for (int c = 0; c < count; c++) {
-                int bestV = 0;
-                float bestError = Float.MAX_VALUE;
-                int guess = Math.round(e[c] * max / 255f);
-                for (int v = Math.max(0, guess - 1); v <= Math.min(max, guess + 1); v++) {
-                    float d = expand(v, bits) - e[c];
-                    if (d * d < bestError) {
-                        bestError = d * d;
-                        bestV = v;
-                    }
-                }
-                tryStored[c] = bestV;
-                rec[c] = expand(bestV, bits);
-            }
-        }
-
         private void packMode6(long[] out) {
-            int[] e0 = new int[5], e1 = stored.clone();
-            int[] indices = idx.clone();
-            if (indices[0] >= 8) { // the anchor index keeps its top bit 0: swap the endpoints
-                int[] t = e0;
-                e0 = e1;
-                e1 = t;
-                flip(indices, 15);
-            }
-            out[0] = out[1] = 0;
-            int pos = put(out, 0, 1 << 6, 7);
-            for (int c = 0; c < 4; c++) {
-                pos = put(out, pos, e0[c], 7);
-                pos = put(out, pos, e1[c], 7);
-            }
-            pos = put(out, pos, e0[4], 1);
-            pos = put(out, pos, e1[4], 1);
-            putIndices(out, pos, indices, 4);
+            SoftwareBc7Encoder.packMode6(out, new int[5], stored.clone(), idx.clone());
         }
 
-        /**
-         * Modes 4 and 5, no rotation. {@code selection} 1 (mode 4 only) puts the 3-bit indices on colour.
-         */
+        /** Modes 4 and 5: puts each anchor index's top bit at 0, then packs. */
         private void packMode45(long[] out, int mode, int selection, int colourBits, int alphaBits,
                                 int colourIndexBits, int alphaIndexBits) {
             int[] c0 = new int[3], c1 = colourStored.clone();
@@ -295,57 +239,8 @@ public final class ExactTransparency {
                 a1 = 0;
                 flip(aIdx, (1 << alphaIndexBits) - 1);
             }
-            out[0] = out[1] = 0;
-            int pos = put(out, 0, 1 << mode, mode + 1);
-            pos = put(out, pos, 0, 2); // rotation
-            if (mode == 4) {
-                pos = put(out, pos, selection, 1);
-            }
-            for (int c = 0; c < 3; c++) {
-                pos = put(out, pos, c0[c], colourBits);
-                pos = put(out, pos, c1[c], colourBits);
-            }
-            pos = put(out, pos, a0, alphaBits);
-            pos = put(out, pos, a1, alphaBits);
-            // The 2-bit set comes first: colour's, unless mode 4 gives colour the 3-bit set.
-            if (selection == 0) {
-                pos = putIndices(out, pos, cIdx, colourIndexBits);
-                putIndices(out, pos, aIdx, alphaIndexBits);
-            } else {
-                pos = putIndices(out, pos, aIdx, alphaIndexBits);
-                putIndices(out, pos, cIdx, colourIndexBits);
-            }
-        }
-
-        private static void flip(int[] indices, int top) {
-            for (int i = 0; i < 16; i++) {
-                indices[i] = top - indices[i];
-            }
-        }
-
-        private static int putIndices(long[] out, int pos, int[] indices, int bits) {
-            pos = put(out, pos, indices[0], bits - 1);
-            for (int i = 1; i < 16; i++) {
-                pos = put(out, pos, indices[i], bits);
-            }
-            return pos;
-        }
-
-        private static int expand(int v, int bits) {
-            return bits == 8 ? v : (v << (8 - bits)) | (v >>> (2 * bits - 8));
-        }
-
-        private static int put(long[] bits, int pos, int value, int numBits) {
-            long v = value & ((1L << numBits) - 1);
-            if (pos < 64) {
-                bits[0] |= v << pos;
-                if (pos + numBits > 64) {
-                    bits[1] |= v >>> (64 - pos);
-                }
-            } else {
-                bits[1] |= v << (pos - 64);
-            }
-            return pos + numBits;
+            SoftwareBc7Encoder.packMode45(out, mode, selection, c0, c1, a0, a1, cIdx, aIdx,
+                    colourBits, alphaBits, colourIndexBits, alphaIndexBits);
         }
     }
 }

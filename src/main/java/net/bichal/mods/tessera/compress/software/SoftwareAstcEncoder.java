@@ -121,18 +121,7 @@ public final class SoftwareAstcEncoder {
         }
 
         void load(ByteBuffer src, int base, int width, int height, int bx, int by) {
-            for (int y = 0; y < blockHeight; y++) {
-                int sy = Math.min(height - 1, by * blockHeight + y);
-                for (int x = 0; x < blockWidth; x++) {
-                    int sx = Math.min(width - 1, bx * blockWidth + x);
-                    int at = base + (sy * width + sx) * 4;
-                    int i = (y * blockWidth + x) * 4;
-                    px[i] = src.get(at) & 0xFF;
-                    px[i + 1] = src.get(at + 1) & 0xFF;
-                    px[i + 2] = src.get(at + 2) & 0xFF;
-                    px[i + 3] = src.get(at + 3) & 0xFF;
-                }
-            }
+            BlockMath.readBlock(src, base, width, height, bx, by, blockWidth, blockHeight, px);
         }
 
         void encode(long[] block) {

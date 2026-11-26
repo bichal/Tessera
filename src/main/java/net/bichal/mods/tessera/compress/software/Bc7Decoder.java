@@ -69,12 +69,8 @@ public final class Bc7Decoder {
             15, 3, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 3, 15, 15, 8,
     };
 
-    private static final int[][] WEIGHTS = {
-            null, null,
-            {0, 21, 43, 64},
-            {0, 9, 18, 27, 37, 46, 55, 64},
-            {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64},
-    };
+    /** Interpolation weights by index bit count. */
+    private static final int[][] WEIGHTS = {null, null, SoftwareBc7Encoder.W2, SoftwareBc7Encoder.W3, SoftwareBc7Encoder.W4};
 
     private Bc7Decoder() {
     }

@@ -106,9 +106,9 @@ public final class CompressionPipeline {
         /** Whether the driver can take this format. Needs {@code Tessera#warmUpGl()} to have run on the render thread. */
         public boolean gpuSupported() {
             return switch (this) {
-                case BC1, BC1_ALPHA -> Bc1TextureFormatSupport.isSupported();
-                case BC7 -> Bc7GpuSupport.isSupported();
-                case ASTC_4X4, ASTC_6X6 -> AstcGpuSupport.isSupported();
+                case BC1, BC1_ALPHA -> GpuTextureSupport.BC1.isSupported();
+                case BC7 -> GpuTextureSupport.BC7.isSupported();
+                case ASTC_4X4, ASTC_6X6 -> GpuTextureSupport.ASTC.isSupported();
             };
         }
     }
