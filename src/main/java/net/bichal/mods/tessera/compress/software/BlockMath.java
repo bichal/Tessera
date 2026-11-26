@@ -57,15 +57,6 @@ final class BlockMath {
         return dr * dr + dg * dg + db * db;
     }
 
-    /** Squared Euclidean distance between two RGBA quads. */
-    static int rgbaDistanceSquared(int r0, int g0, int b0, int a0, int r1, int g1, int b1, int a1) {
-        int dr = r0 - r1;
-        int dg = g0 - g1;
-        int db = b0 - b1;
-        int da = a0 - a1;
-        return dr * dr + dg * dg + db * db + da * da;
-    }
-
     static int quantizeTo(int value8, int bits) {
         int maxOut = (1 << bits) - 1;
         int maxIn = 255;

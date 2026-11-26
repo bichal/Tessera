@@ -53,18 +53,12 @@ public final class TesseraRuntime {
     };
 
     private static volatile CompressionBackend backend;
-    private static volatile boolean forcedCompatMode;
 
     private TesseraRuntime() {
     }
 
-    /** Same shape as {@code CelerisRuntime#forceCompatMode()}; must be called before {@link #backend()}. */
-    public static void forceCompatMode() {
-        forcedCompatMode = true;
-    }
-
     public static boolean isCompatModeForced() {
-        return forcedCompatMode || Boolean.getBoolean(COMPAT_MODE_PROPERTY);
+        return Boolean.getBoolean(COMPAT_MODE_PROPERTY);
     }
 
     /**

@@ -16,7 +16,6 @@ import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 
 import java.util.List;
-import java.util.function.Consumer;
 
 /^*
  * Tessera's settings on Fabric, opened from Mod Menu ({@code TesseraModMenu}), laid out like NeoForge's

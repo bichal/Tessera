@@ -1,6 +1,5 @@
 package net.bichal.mods.tessera.selftest;
 
-import net.bichal.mods.tessera.cache.AtlasCache;
 import net.bichal.mods.tessera.compat.ModCompat;
 import net.bichal.mods.tessera.compat.TesseraCompat;
 import net.bichal.mods.tessera.atlas.AtlasPolicy;
@@ -14,7 +13,6 @@ import net.bichal.mods.tessera.compress.Bc7GpuSupport;
 import net.bichal.mods.tessera.compress.CompressionPipeline;
 import net.bichal.mods.tessera.compress.gpu.GpuCompression;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 //? if neoforge {

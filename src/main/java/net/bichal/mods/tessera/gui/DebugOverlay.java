@@ -91,11 +91,6 @@ public final class DebugOverlay {
         statsVersion++;
     }
 
-    @SuppressWarnings("unused")
-    public static Map<String, AtlasStats> getPerAtlasStats() {
-        return Map.copyOf(perAtlasStats);
-    }
-
     /** Compression status, atlas VRAM (static atlases compressed, animated ones RGBA), budget and GPU memory. */
     public static List<String> summaryLines() {
         refreshLines();
