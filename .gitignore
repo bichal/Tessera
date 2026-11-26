@@ -46,3 +46,6 @@ native/vendor/astcenc/*
 native/vendor/basisu/*
 !native/vendor/basisu/LICENSE
 !native/vendor/basisu/VENDORING.md
+
+# Internal working notes
+/docs/audit/
