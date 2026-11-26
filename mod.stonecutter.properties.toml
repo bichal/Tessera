@@ -17,7 +17,10 @@ authors = "Bichal"
 description = "Tessera: Minecraft's textures take less video memory, and look the same."
 side = "CLIENT"
 issues = "https://github.com/bichal/Tessera/issues"
-banner = "banner.png"
+# Packed into the jar by bichal-build-logic: icon (square) for Fabric's mod
+# list, banner (wide) for NeoForge's. The README and the sites use the same files.
+icon = "docs/media/logo.png"
+banner = "docs/media/banner.png"
 
 # Celeris is both a compile dependency and a required runtime mod (declared in
 # neoforge.mods.toml). bichal-build-logic resolves `artifact` ({mc} = the

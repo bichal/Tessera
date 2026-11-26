@@ -10,7 +10,7 @@
     "issues": "${mod_issues}"
   },
   "license": "${mod_license}",
-  "icon": "${mod_banner}",
+  "icon": "${mod_icon}",
   "environment": "client",
   "entrypoints": {
     "client": ["net.bichal.mods.tessera.TesseraFabric"],
