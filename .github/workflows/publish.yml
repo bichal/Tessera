@@ -30,21 +30,21 @@ jobs:
       TARGETS: ${{ inputs.targets }}
       PUBLISH: bichal-build-logic/publishing/bichal_publish.py
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ inputs.tag }}
           path: mod
           persist-credentials: false
 
       # Same build-logic commit as ci.yml.
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: bichal/BichalBuildLogic
           ref: bbfb23e27123c06e4440bdca73d616d0deb29764
           path: bichal-build-logic
           persist-credentials: false
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 

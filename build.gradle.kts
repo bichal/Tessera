@@ -104,15 +104,16 @@ if (modProps.isFabric) {
             // Headless client check of the compressed atlases: TesseraSelfTest.
             create("selftest") {
                 client()
-                vmArg("-Dtessera.selftest=true")
-                if (selftestWorldCommands != null) vmArg("-Dtessera.selftest.world=$selftestWorldCommands")
-                if ((findProperty("selftestScreen") as String?) == "true") vmArg("-Dtessera.selftest.screen=true")
-                if (selftestFormats != null) vmArg("-Dtessera.formats=$selftestFormats")
-                if (selftestCompat) vmArg("-Dtessera.compatMode=true")
-                if (selftestDump != null) vmArg("-Dtessera.selftest.dump=$selftestDump")
-                if (selftestMods != null) vmArg("-Dfabric.addMods=$selftestMods")
-                vmArg("-Dtessera.selftest.version=${modProps.currentVersion}")
-                vmArg("-Xmx2G")
+                runDirectory.set(layout.projectDirectory.dir("run-selftest"))
+                jvmArguments.add("-Dtessera.selftest=true")
+                if (selftestWorldCommands != null) jvmArguments.add("-Dtessera.selftest.world=$selftestWorldCommands")
+                if ((findProperty("selftestScreen") as String?) == "true") jvmArguments.add("-Dtessera.selftest.screen=true")
+                if (selftestFormats != null) jvmArguments.add("-Dtessera.formats=$selftestFormats")
+                if (selftestCompat) jvmArguments.add("-Dtessera.compatMode=true")
+                if (selftestDump != null) jvmArguments.add("-Dtessera.selftest.dump=$selftestDump")
+                if (selftestMods != null) jvmArguments.add("-Dfabric.addMods=$selftestMods")
+                jvmArguments.add("-Dtessera.selftest.version=${modProps.currentVersion}")
+                jvmArguments.add("-Xmx2G")
             }
         }
     }
@@ -131,12 +132,6 @@ if (modProps.isFabric) {
         jvmArgs.addAll("-Dtessera.selftest=true", "-Dtessera.selftest.version=${modProps.currentVersion}", "-Xmx2G")
         if (selftestFormats != null) jvmArgs.add("-Dtessera.formats=$selftestFormats")
         if (selftestCompat) jvmArgs.add("-Dtessera.compatMode=true")
-    }
-    // After bichal.fabric-mod's afterEvaluate, which sets every run's directory to "run".
-    afterEvaluate {
-        extensions.configure<net.fabricmc.loom.api.LoomGradleExtensionAPI>("loom") {
-            runs.named("selftest") { runDir("run-selftest") }
-        }
     }
 }
 tasks.named<ProcessResources>("processResources") {

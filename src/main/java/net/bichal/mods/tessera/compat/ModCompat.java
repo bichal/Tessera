@@ -48,6 +48,9 @@ public final class ModCompat {
         try {
             //? if fabric {
             /*return net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(modId);
+            *///?} else if >=1.21.10 {
+            /*var loader = net.neoforged.fml.loading.FMLLoader.getCurrentOrNull();
+            return loader != null && loader.getLoadingModList().getModFileById(modId) != null;
             *///?} else {
             var list = net.neoforged.fml.loading.LoadingModList.get();
             return list != null && list.getModFileById(modId) != null;
